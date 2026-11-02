@@ -1,0 +1,696 @@
+/* Extrato de Tomate — TV shell with spatial navigation, remote keys and a full player.
+   ES2017 only: real TVs run older Chromium and ES2020 syntax blanks the page. */
+
+(function () {
+  'use strict';
+
+  var catalog = { hero: null, rows: [] };
+  var continueRow = null;
+  var nav = { current: null, scope: 'page' };
+  var player = null;
+  var hls = null;
+  var current = null;
+  var hideTimer = null;
+  var saveTimer = null;
+  var modalOpen = false;
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  // ---------------------------------------------------------------- storage
+  function loadStore() {
+    try {
+      return JSON.parse(localStorage.getItem('extrato.progress') || '{}');
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveProgress(entry) {
+    try {
+      var store = loadStore();
+      store[entry.key] = entry;
+      localStorage.setItem('extrato.progress', JSON.stringify(store));
+    } catch (e) { /* private mode */ }
+  }
+
+  function progressFor(key) {
+    var store = loadStore();
+    return store[key] || null;
+  }
+
+  // ---------------------------------------------------------------- rendering
+  function artFor(item) {
+    if (item.poster) {
+      return item.poster;
+    }
+    // deterministic gradient: no external image, nothing broken offline
+    var hash = 0;
+    var text = String(item.id || item.title || '');
+    for (var i = 0; i < text.length; i++) {
+      hash = (hash * 31 + text.charCodeAt(i)) % 360;
+    }
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300">' +
+      '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">' +
+      '<stop offset="0" stop-color="hsl(' + hash + ',48%,26%)"/>' +
+      '<stop offset="1" stop-color="hsl(' + ((hash + 40) % 360) + ',44%,12%)"/>' +
+      '</linearGradient></defs><rect width="200" height="300" fill="url(#g)"/>' +
+      '<circle cx="100" cy="128" r="42" fill="#e8452c"/>' +
+      '<path d="M100 86 q26 10 0 22 q-26 -12 0 -22" fill="#3a9a46"/>' +
+      '<circle cx="86" cy="126" r="5" fill="#2a1410"/><circle cx="114" cy="126" r="5" fill="#2a1410"/>' +
+      '</svg>';
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  }
+
+  function buildCard(item, rowKey) {
+    var card = document.createElement('div');
+    card.className = 'card focusable';
+    card.tabIndex = 0;
+    card.setAttribute('data-key', rowKey + ':' + item.id);
+
+    var art = document.createElement('img');
+    art.className = 'art';
+    art.src = artFor(item);
+    art.alt = item.title || '';
+    art.loading = 'lazy';
+    card.appendChild(art);
+
+    var label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = item.title || 'Sem título';
+    card.appendChild(label);
+
+    var entry = progressFor(item.id);
+    if (entry && entry.d > 0) {
+      var bar = document.createElement('div');
+      bar.className = 'progress';
+      var fill = document.createElement('span');
+      fill.style.width = Math.min(100, Math.round((entry.t / entry.d) * 100)) + '%';
+      bar.appendChild(fill);
+      card.appendChild(bar);
+      if (entry.t / entry.d > 0.02 && entry.t / entry.d < 0.96) {
+        var badge = document.createElement('div');
+        badge.className = 'badge';
+        badge.textContent = 'CONTINUAR';
+        card.appendChild(badge);
+      }
+    }
+
+    card.addEventListener('click', function () { openDetail(item); });
+    return card;
+  }
+
+  function renderRows() {
+    var host = $('rows');
+    host.innerHTML = '';
+    var rows = [];
+
+    if (continueRow && continueRow.items.length) {
+      rows.push(continueRow);
+    }
+    rows = rows.concat(catalog.rows || []);
+
+    if (!rows.length) {
+      var empty = document.createElement('p');
+      empty.className = 'empty';
+      empty.textContent = 'Nada no catálogo ainda. Edite catalog.json para adicionar seus vídeos.';
+      host.appendChild(empty);
+      return;
+    }
+
+    rows.forEach(function (row, index) {
+      var section = document.createElement('section');
+      section.className = 'row';
+
+      var title = document.createElement('h2');
+      title.className = 'row-title';
+      title.textContent = row.title || ('Linha ' + (index + 1));
+      section.appendChild(title);
+
+      var track = document.createElement('div');
+      track.className = 'track';
+      (row.items || []).forEach(function (item) {
+        track.appendChild(buildCard(item, index));
+      });
+      section.appendChild(track);
+
+      host.appendChild(section);
+    });
+  }
+
+  function setHero(item) {
+    if (!item) {
+      return;
+    }
+    $('heroTitle').textContent = item.title || 'Extrato de Tomate';
+    $('heroDesc').textContent = item.desc || '';
+    $('heroKicker').textContent = item.kicker || 'DESTAQUE';
+    var bg = $('heroBg');
+    bg.style.backgroundImage = 'url("' + artFor(item) + '")';
+    $('heroPlay').onclick = function () { play(item, 0); };
+    $('heroInfo').onclick = function () { openDetail(item); };
+  }
+
+  // ---------------------------------------------------------------- spatial navigation
+  function focusables() {
+    var scope = nav.scope === 'player' ? $('player')
+      : (nav.scope === 'search' ? $('search') : (modalOpen ? $('modal') : document));
+    var list = Array.prototype.slice.call(scope.querySelectorAll('.focusable'));
+    return list.filter(function (el) {
+      return el.offsetParent !== null || el === nav.current;
+    });
+  }
+
+  function setFocus(el) {
+    if (!el) {
+      return;
+    }
+    if (nav.current && nav.current.classList) {
+      nav.current.classList.remove('focused');
+    }
+    nav.current = el;
+    el.classList.add('focused');
+    try { el.focus({ preventScroll: true }); } catch (e) { }
+    reveal(el);
+  }
+
+  function reveal(el) {
+    var track = el.closest ? el.closest('.track') : null;
+    if (track) {
+      var left = el.offsetLeft - track.clientWidth / 2 + el.offsetWidth / 2;
+      track.scrollTo({ left: left, behavior: 'smooth' });
+    }
+    var rect = el.getBoundingClientRect();
+    if (rect.top < 70 || rect.bottom > window.innerHeight - 40) {
+      window.scrollBy({ top: rect.top - 120, behavior: 'smooth' });
+    }
+  }
+
+  function move(direction) {
+    var list = focusables();
+    if (!list.length) {
+      return;
+    }
+    if (!nav.current) {
+      setFocus(list[0]);
+      return;
+    }
+    var inRail = !!(nav.current.closest && nav.current.closest('.rail'));
+    list = list.filter(function (el) {
+      var isRail = !!(el.closest && el.closest('.rail'));
+      if (inRail) {
+        return isRail || direction === 'right';
+      }
+      if (isRail) {
+        return direction === 'left';
+      }
+      return true;
+    });
+    if (!list.length) {
+      return;
+    }
+
+    var from = nav.current.getBoundingClientRect();
+    var fromX = from.left + from.width / 2;
+    var fromY = from.top + from.height / 2;
+    var best = null;
+    var bestScore = Infinity;
+
+    list.forEach(function (el) {
+      if (el === nav.current) {
+        return;
+      }
+      var r = el.getBoundingClientRect();
+      if (!r.width || !r.height) {
+        return;
+      }
+      var x = r.left + r.width / 2;
+      var y = r.top + r.height / 2;
+      var dx = x - fromX;
+      var dy = y - fromY;
+      var primary = 0;
+      var secondary = 0;
+      if (direction === 'right') { if (dx <= 6) { return; } primary = dx; secondary = Math.abs(dy); }
+      else if (direction === 'left') { if (dx >= -6) { return; } primary = -dx; secondary = Math.abs(dy); }
+      else if (direction === 'down') { if (dy <= 6) { return; } primary = dy; secondary = Math.abs(dx); }
+      else { if (dy >= -6) { return; } primary = -dy; secondary = Math.abs(dx); }
+      var score = primary + secondary * 2.4;
+      if (direction === 'up' || direction === 'down') {
+        score += secondary * 1.6;
+      }
+      if (secondary > 6) { score += 120; }
+      var sameTrack = el.closest && nav.current.closest &&
+        el.closest('.track') && el.closest('.track') === nav.current.closest('.track');
+      if (sameTrack && (direction === 'left' || direction === 'right')) {
+        score -= 40;
+      }
+      if (score < bestScore) { bestScore = score; best = el; }
+    });
+
+    if (!best) {
+      // wrap inside the same row
+      if (direction === 'left' || direction === 'right') {
+        var row = nav.current.closest ? nav.current.closest('.track') : null;
+        if (row) {
+          var cards = Array.prototype.slice.call(row.querySelectorAll('.focusable'));
+          var index = cards.indexOf(nav.current);
+          if (index >= 0 && cards.length > 1) {
+            best = direction === 'right' ? cards[0] : cards[cards.length - 1];
+          }
+        }
+      }
+      // rail is self contained; right jumps back to content
+      if (!best && nav.current.closest && nav.current.closest('.rail') && direction === 'right') {
+        var first = focusables().filter(function (el) { return !el.closest('.rail'); })[0];
+        best = first || null;
+      }
+    }
+    if (best) {
+      setFocus(best);
+    }
+  }
+
+  function openDetail(item) {
+    current = item;
+    nav.returnTo = document.querySelector('.focused');
+    $('modalTitle').textContent = item.title || '';
+    $('modalDesc').textContent = item.desc || 'Sem descrição.';
+    $('modal').classList.remove('hidden');
+    modalOpen = true;
+    nav.scope = 'modal';
+    setFocus($('modalPlay'));
+  }
+
+  function closeDetail() {
+    $('modal').classList.add('hidden');
+    modalOpen = false;
+    nav.scope = 'page';
+  }
+
+  // ---------------------------------------------------------------- player
+  function play(item, startAt) {
+    if (!item || !item.video) {
+      $('modalTitle').textContent = item && item.title ? item.title : 'Sem vídeo';
+      $('modalDesc').textContent = 'Este item não tem link de vídeo. Edite catalog.json para apontar um .m3u8 ou .mp4.';
+      $('modal').classList.remove('hidden');
+      modalOpen = true;
+      nav.scope = 'modal';
+      setFocus($('modalPlay'));
+      return;
+    }
+    current = item;
+    $('player').classList.remove('hidden');
+    $('playerTitle').textContent = item.title || '';
+    nav.scope = 'player';
+    var video = $('video');
+
+    if (hls) { hls.destroy(); hls = null; }
+    video.pause();
+    video.removeAttribute('src');
+
+    var source = item.video;
+    if (source && source.indexOf('.m3u8') >= 0) {
+      if (window.Hls && window.Hls.isSupported()) {
+        hls = new window.Hls({ enableWorker: true, lowLatencyMode: false });
+        hls.loadSource(source);
+        hls.attachMedia(video);
+      } else {
+        video.src = source; // Safari/iOS plays HLS natively
+      }
+    } else {
+      video.src = source;
+    }
+
+    var resume = startAt || 0;
+    if (!resume) {
+      var entry = progressFor(item.id);
+      if (entry && entry.t > 5 && (!entry.d || entry.t < entry.d * 0.96)) {
+        resume = entry.t;
+      }
+    }
+    if (resume > 0) {
+      video.addEventListener('loadedmetadata', function once() {
+        video.removeEventListener('loadedmetadata', once);
+        try { video.currentTime = resume; } catch (e) { }
+      });
+    }
+
+    var attempt = video.play();
+    if (attempt && attempt.catch) {
+      attempt.catch(function () {
+        $('playerHint').classList.remove('hidden');
+      });
+    }
+    setFocus($('btnPlay'));
+    scheduleHideUi();
+    clearInterval(saveTimer);
+    saveTimer = setInterval(persistProgress, 5000);
+  }
+
+  function persistProgress() {
+    if (!current) { return; }
+    var video = $('video');
+    if (!video.duration || !isFinite(video.duration)) { return; }
+    saveProgress({
+      key: current.id,
+      id: current.id,
+      t: video.currentTime,
+      d: video.duration,
+      title: current.title || '',
+      video: current.video || '',
+      at: Date.now()
+    });
+  }
+
+  function closePlayer() {
+    persistProgress();
+    clearInterval(saveTimer);
+    var video = $('video');
+    video.pause();
+    if (hls) { hls.destroy(); hls = null; }
+    video.removeAttribute('src');
+    video.load();
+    $('player').classList.add('hidden');
+    $('playerHint').classList.add('hidden');
+    nav.scope = modalOpen ? 'modal' : 'page';
+    buildContinueRow();
+    renderRows();
+    if (nav.returnTo && document.body.contains(nav.returnTo)) {
+      setFocus(nav.returnTo);
+    } else {
+      var list = focusables();
+      if (list.length) { setFocus(list[0]); }
+    }
+  }
+
+  function togglePlay() {
+    var video = $('video');
+    if (video.paused) {
+      var p = video.play();
+      if (p && p.catch) { p.catch(function () { }); }
+    } else {
+      video.pause();
+    }
+  }
+
+  function seek(delta) {
+    var video = $('video');
+    var target = video.currentTime + delta;
+    if (target < 0) { target = 0; }
+    if (video.duration && target > video.duration - 1) { target = video.duration - 1; }
+    video.currentTime = target;
+  }
+
+  function scheduleHideUi() {
+    clearTimeout(hideTimer);
+    var ui = $('playerUi');
+    ui.classList.remove('hidden-ui');
+    hideTimer = setTimeout(function () {
+      if (!$('video').paused) { ui.classList.add('hidden-ui'); }
+    }, 4200);
+  }
+
+  function formatTime(seconds) {
+    if (!isFinite(seconds) || seconds < 0) { seconds = 0; }
+    var m = Math.floor(seconds / 60);
+    var s = Math.floor(seconds % 60);
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function wirePlayer() {
+    var video = $('video');
+    video.addEventListener('timeupdate', function () {
+      var d = video.duration || 0;
+      $('curTime').textContent = formatTime(video.currentTime);
+      $('durTime').textContent = formatTime(d);
+      $('timelineFill').style.width = d ? ((video.currentTime / d) * 100) + '%' : '0%';
+    });
+    video.addEventListener('play', function () {
+      $('btnPlay').textContent = '❚❚';
+      scheduleHideUi();
+    });
+    video.addEventListener('pause', function () {
+      $('btnPlay').textContent = '▶';
+      $('playerUi').classList.remove('hidden-ui');
+    });
+    video.addEventListener('ended', function () {
+      persistProgress();
+      closePlayer();
+    });
+    $('btnPlay').onclick = function () { togglePlay(); };
+    $('btnBack').onclick = function () { seek(-10); scheduleHideUi(); };
+    $('btnFwd').onclick = function () { seek(10); scheduleHideUi(); };
+    $('btnMute').onclick = function () { video.muted = !video.muted; };
+    $('btnNext').onclick = function () { closePlayer(); };
+    $('playerClose').onclick = function () { closePlayer(); };
+    $('modalClose').onclick = function () { closeDetail(); };
+    $('modalPlay').onclick = function () {
+      var item = current;
+      closeDetail();
+      if (item) { play(item, 0); }
+    };
+  }
+
+  // ---------------------------------------------------------------- continue watching
+  function buildContinueRow() {
+    var store = loadStore();
+    var items = [];
+    Object.keys(store).forEach(function (key) {
+      var entry = store[key];
+      if (!entry || !entry.video) { return; }
+      if (entry.d && entry.t > entry.d * 0.96) { return; }
+      items.push({ id: entry.id || key, title: entry.title, video: entry.video, resume: entry.t });
+    });
+    items.sort(function (a, b) { return (b.resume || 0) - (a.resume || 0); });
+    continueRow = items.length ? { title: 'Continuar assistindo', items: items } : null;
+  }
+
+  // ---------------------------------------------------------------- keys
+  var KEY = {
+    LEFT: [37, 4], RIGHT: [39, 5], UP: [38, 19], DOWN: [40, 20],
+    OK: [13, 32], BACK: [27, 8, 461, 10009], PLAY: [179, 415], FWD: [417, 228], REW: [412, 227]
+  };
+
+  function includes(list, code) { return list.indexOf(code) >= 0; }
+
+  function handleKey(event) {
+    var code = event.keyCode;
+    var target = event.target;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+      return;
+    }
+
+    if (nav.scope === 'search') {
+      if (includes(KEY.BACK, code)) { event.preventDefault(); closeSearch(); }
+      return;
+    }
+
+    if (nav.scope === 'player') {
+      if (includes(KEY.BACK, code)) { event.preventDefault(); closePlayer(); return; }
+      if (includes(KEY.PLAY, code)) { event.preventDefault(); togglePlay(); scheduleHideUi(); return; }
+      if (includes(KEY.FWD, code)) { event.preventDefault(); seek(10); scheduleHideUi(); return; }
+      if (includes(KEY.REW, code)) { event.preventDefault(); seek(-10); scheduleHideUi(); return; }
+      if (includes(KEY.LEFT, code)) { event.preventDefault(); move('left'); scheduleHideUi(); return; }
+      if (includes(KEY.RIGHT, code)) { event.preventDefault(); move('right'); scheduleHideUi(); return; }
+      if (includes(KEY.OK, code)) {
+        event.preventDefault();
+        scheduleHideUi();
+        if (nav.current && nav.current.click) { nav.current.click(); } else { togglePlay(); }
+        return;
+      }
+      if ($('playerUi').classList.contains('hidden-ui')) { scheduleHideUi(); }
+      return;
+    }
+
+    if (includes(KEY.LEFT, code)) { event.preventDefault(); move('left'); return; }
+    if (includes(KEY.RIGHT, code)) { event.preventDefault(); move('right'); return; }
+    if (includes(KEY.UP, code)) { event.preventDefault(); move('up'); return; }
+    if (includes(KEY.DOWN, code)) { event.preventDefault(); move('down'); return; }
+    if (includes(KEY.OK, code)) {
+      event.preventDefault();
+      if (nav.current && nav.current.click) { nav.current.click(); }
+      return;
+    }
+    if (includes(KEY.BACK, code)) {
+      event.preventDefault();
+      if (modalOpen) { closeDetail(); }
+      return;
+    }
+  }
+
+  // gamepad polling so a TV box controller works too
+  function pollGamepads() {
+    var pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (var i = 0; i < pads.length; i++) {
+      var pad = pads[i];
+      if (!pad) { continue; }
+      var now = Date.now();
+      if (pad.timestamp === pad._lastStamp) { continue; }
+      pad._lastStamp = pad.timestamp;
+      var pressed = function (index) { return pad.buttons[index] && pad.buttons[index].pressed; };
+      if (!pad._last) { pad._last = now; }
+      if (now - pad._last < 90) { continue; }
+      var moved = false;
+      var fake = function (code) {
+        pad._last = now;
+        handleKey({ keyCode: code, preventDefault: function () { }, target: document.body });
+        moved = true;
+      };
+      if (pressed(12)) { fake(38); }
+      else if (pressed(13)) { fake(40); }
+      else if (pressed(14)) { fake(37); }
+      else if (pressed(15)) { fake(39); }
+      else if (pressed(0)) { fake(13); }
+      else if (pressed(1)) { fake(27); }
+      if (!moved && pad.axes && pad.axes.length >= 2) {
+        if (pad.axes[1] < -0.6) { fake(38); }
+        else if (pad.axes[1] > 0.6) { fake(40); }
+        else if (pad.axes[0] < -0.6) { fake(37); }
+        else if (pad.axes[0] > 0.6) { fake(39); }
+      }
+    }
+    requestAnimationFrame(pollGamepads);
+  }
+
+
+  // ---------------------------------------------------------------- rail actions
+  function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    var hero = $('heroPlay');
+    if (hero) { setFocus(hero); }
+  }
+
+  function goContinue() {
+    var row = document.querySelectorAll('.row')[continueRow ? 0 : -1];
+    if (!continueRow) {
+      scrollToTop();
+      return;
+    }
+    if (row) {
+      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      var card = row.querySelector('.focusable');
+      if (card) { setFocus(card); }
+    }
+  }
+
+  function openSearch() {
+    var overlay = $('search');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'search';
+      overlay.className = 'modal';
+      overlay.innerHTML = '<div class="modal-card">' +
+        '<h2>Buscar</h2>' +
+        '<input id="searchInput" type="search" placeholder="Digite o título e aperte Enter" autocomplete="off">' +
+        '<div id="searchResults" class="search-results"></div>' +
+        '<div class="modal-actions"><button class="btn focusable" id="searchClose" tabindex="0">Fechar</button></div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+      $('searchClose').onclick = closeSearch;
+      $('searchInput').addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          runSearch($('searchInput').value);
+        }
+        if (event.key === 'Escape') { event.preventDefault(); closeSearch(); }
+      });
+    }
+    overlay.classList.remove('hidden');
+    modalOpen = true;
+    nav.scope = 'search';
+    var input = $('searchInput');
+    input.value = '';
+    $('searchResults').innerHTML = '';
+    setTimeout(function () { input.focus(); }, 40);
+  }
+
+  function closeSearch() {
+    var overlay = $('search');
+    if (overlay) { overlay.classList.add('hidden'); }
+    modalOpen = false;
+    nav.scope = 'page';
+    scrollToTop();
+  }
+
+  function allItems() {
+    var out = [];
+    (catalog.rows || []).forEach(function (row) { out = out.concat(row.items || []); });
+    return out;
+  }
+
+  function runSearch(term) {
+    var query = (term || '').trim().toLowerCase();
+    var host = $('searchResults');
+    host.innerHTML = '';
+    if (!query) { return; }
+    var hits = allItems().filter(function (item) {
+      return (item.title || '').toLowerCase().indexOf(query) >= 0;
+    });
+    if (!hits.length) {
+      host.textContent = 'Nada encontrado para "' + term + '".';
+      return;
+    }
+    hits.forEach(function (item) {
+      var button = document.createElement('button');
+      button.className = 'btn focusable';
+      button.tabIndex = 0;
+      button.textContent = item.title || '(sem título)';
+      button.style.display = 'block';
+      button.style.width = '100%';
+      button.style.marginBottom = '0.6vw';
+      button.style.textAlign = 'left';
+      button.onclick = function () {
+        closeSearch();
+        play(item, 0);
+      };
+      host.appendChild(button);
+    });
+  }
+
+  function wireRail() {
+    document.querySelectorAll('.rail-item').forEach(function (button) {
+      var action = button.getAttribute('data-go');
+      button.onclick = function () {
+        if (action === 'home') { scrollToTop(); }
+        else if (action === 'continue') { goContinue(); }
+        else if (action === 'search') { openSearch(); }
+        else if (action === 'reload') { location.reload(); }
+      };
+    });
+  }
+
+  // ---------------------------------------------------------------- boot
+  function boot() {
+    document.addEventListener('keydown', handleKey, true);
+    document.addEventListener('mousemove', function () { document.body.classList.add('pointer'); });
+    wirePlayer();
+    wireRail();
+    requestAnimationFrame(pollGamepads);
+
+    fetch('./catalog.json', { cache: 'no-cache' })
+      .then(function (response) { return response.json(); })
+      .then(function (data) {
+        catalog = data || { hero: null, rows: [] };
+        setHero(catalog.hero);
+        buildContinueRow();
+        renderRows();
+        var list = focusables();
+        if (list.length) { setFocus(list[0]); }
+      })
+      .catch(function () {
+        var empty = document.createElement('p');
+        empty.className = 'empty';
+        empty.textContent = 'Não consegui carregar catalog.json.';
+        $('rows').appendChild(empty);
+      });
+
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+      navigator.serviceWorker.register('./sw.js').catch(function () { });
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();

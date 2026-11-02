@@ -1,0 +1,356 @@
+/* Extrato de Tomate — 10-foot UI that also behaves on phones and laptops. */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #101010;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  overflow: hidden;
+  cursor: none;
+}
+
+body.pointer { cursor: default; }
+
+#app {
+  position: relative;
+  height: 100%;
+  padding-left: 5.4vw;
+  padding-right: 5.4vw;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ---------------------------------------------------------------- hero */
+.hero {
+  position: relative;
+  min-height: 38vh;
+  display: flex;
+  align-items: flex-end;
+  margin: 0 -5.4vw;
+  padding: 0 5.4vw 2.2vw;
+  overflow: hidden;
+}
+
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 120% at 15% 20%, #3a1410 0%, #170a09 45%, #101010 100%);
+  background-size: cover;
+  background-position: center;
+  opacity: 0.9;
+}
+
+.hero-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(16,16,16,0.2) 0%, rgba(16,16,16,0.85) 62%, #101010 100%),
+              linear-gradient(0deg, #101010 2%, rgba(16,16,16,0) 55%);
+}
+
+.hero-info { position: relative; max-width: 52vw; }
+
+.hero-kicker {
+  margin: 0 0 0.6vw;
+  font-size: 0.86vw;
+  letter-spacing: 0.22em;
+  color: #f25022;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: 3.4vw;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+}
+
+.hero-desc {
+  margin: 0.9vw 0 1.4vw;
+  font-size: 1.02vw;
+  line-height: 1.45;
+  color: #c9c9d1;
+  max-width: 40vw;
+}
+
+.hero-actions { display: flex; gap: 0.9vw; }
+
+/* ---------------------------------------------------------------- buttons */
+.btn {
+  border: 0.14vw solid rgba(255,255,255,0.18);
+  background: rgba(30,30,38,0.82);
+  color: #fff;
+  font-size: 1vw;
+  padding: 0.72vw 1.5vw;
+  border-radius: 3vw;
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.btn.primary { background: #f25022; border-color: #f25022; color: #14090a; font-weight: 700; }
+.btn.small { font-size: 0.9vw; padding: 0.5vw 1vw; }
+.btn.round { width: 3.6vw; height: 3.6vw; padding: 0; border-radius: 50%; font-size: 0.92vw; }
+
+.focusable.focused {
+  outline: none;
+  border-color: #f25022;
+  background: #2b2b36;
+  transform: scale(1.06);
+  box-shadow: 0 0 0 0.18vw #f25022;
+}
+
+/* ---------------------------------------------------------------- rows */
+main { padding-bottom: 6vh; }
+
+.row { margin-bottom: 2.4vw; }
+
+.row-title {
+  font-size: 1.24vw;
+  font-weight: 600;
+  margin: 0 0 0.8vw 0.2vw;
+  letter-spacing: 0.01em;
+}
+
+.track {
+  display: flex;
+  gap: 1vw;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  padding: 0.3vw 0.2vw 0.6vw;
+}
+
+.track::-webkit-scrollbar { display: none; }
+
+.card {
+  position: relative;
+  flex: 0 0 auto;
+  width: 12.6vw;
+  border-radius: 0.7vw;
+  overflow: hidden;
+  background: #1c1c22;
+  border: 0.14vw solid transparent;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+
+.card .art {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  background: #26262e;
+  display: block;
+  object-fit: cover;
+}
+
+.card .label {
+  padding: 0.55vw 0.6vw 0.7vw;
+  font-size: 0.86vw;
+  line-height: 1.25;
+  color: #e6e6ea;
+  max-height: 3.4vw;
+  overflow: hidden;
+}
+
+.card .progress {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 0.22vw;
+  background: rgba(255,255,255,0.15);
+}
+
+.card .progress span { display: block; height: 100%; background: #f25022; }
+
+.card .badge {
+  position: absolute;
+  top: 0.5vw; left: 0.5vw;
+  background: rgba(0,0,0,0.72);
+  color: #fff;
+  font-size: 0.62vw;
+  letter-spacing: 0.08em;
+  padding: 0.18vw 0.44vw;
+  border-radius: 0.3vw;
+}
+
+.card.focused {
+  border-color: #f25022;
+  transform: scale(1.07);
+  box-shadow: 0 0 1.4vw rgba(242,80,34,0.35);
+}
+
+/* ---------------------------------------------------------------- rail */
+.rail {
+  position: fixed;
+  left: 0; top: 0; bottom: 0;
+  width: 5.2vw;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.4vw;
+  background: linear-gradient(90deg, rgba(16,16,16,0.95), rgba(16,16,16,0));
+  z-index: 5;
+}
+
+.rail-item {
+  width: 3.1vw; height: 3.1vw;
+  border-radius: 50%;
+  border: 0.14vw solid transparent;
+  background: rgba(30,30,38,0.9);
+  color: #b9b9c2;
+  font-size: 1.3vw;
+}
+
+.rail-item.focused { color: #fff; }
+
+/* ---------------------------------------------------------------- player */
+.player {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.player video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+
+.player-ui {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 2vw 3vw;
+  background: linear-gradient(180deg, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 30%, rgba(0,0,0,0.75) 100%);
+  transition: opacity 0.25s ease;
+}
+
+.player-ui.hidden-ui { opacity: 0; pointer-events: none; }
+
+.player-top { display: flex; justify-content: space-between; align-items: center; }
+.player-top h2 { margin: 0; font-size: 1.4vw; font-weight: 600; }
+
+.player-controls {
+  display: flex;
+  gap: 1.2vw;
+  justify-content: center;
+  align-items: center;
+}
+
+.player-bar {
+  display: flex;
+  align-items: center;
+  gap: 1vw;
+  font-size: 0.9vw;
+  color: #cfcfd6;
+}
+
+.timeline { flex: 1; height: 0.32vw; background: rgba(255,255,255,0.2); border-radius: 1vw; overflow: hidden; }
+.timeline-fill { height: 100%; width: 0%; background: #f25022; }
+
+.player-hint {
+  position: absolute;
+  bottom: 8vh;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.75);
+  padding: 0.7vw 1.4vw;
+  border-radius: 2vw;
+  font-size: 0.95vw;
+}
+
+/* ---------------------------------------------------------------- modal */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+}
+
+.modal-card {
+  background: #17171d;
+  border: 0.1vw solid #2c2c36;
+  border-radius: 1vw;
+  padding: 2vw 2.4vw;
+  width: 42vw;
+  max-width: 90vw;
+}
+
+.modal-card h2 { margin: 0 0 0.8vw; font-size: 1.7vw; }
+.modal-card p { margin: 0 0 1.6vw; color: #c3c3cc; font-size: 1vw; line-height: 1.5; }
+.modal-actions { display: flex; gap: 0.9vw; }
+
+.hidden { display: none !important; }
+
+#searchInput {
+  width: 100%;
+  margin: 0.4vw 0 1vw;
+  padding: 0.9vw 1.1vw;
+  border-radius: 0.7vw;
+  border: 0.12vw solid #33333f;
+  background: #101014;
+  color: #fff;
+  font-size: 1.05vw;
+}
+
+#searchInput:focus { outline: none; border-color: #f25022; }
+
+.search-results {
+  max-height: 34vh;
+  overflow-y: auto;
+  margin-bottom: 1vw;
+  color: #c7c7ce;
+  font-size: 0.95vw;
+}
+
+@media (max-aspect-ratio: 1/1) {
+  #searchInput { font-size: 3.6vw; padding: 3vw; border-radius: 2vw; border-width: 0.3vw; }
+  .search-results { font-size: 3.4vw; max-height: 30vh; }
+}
+
+.empty {
+  color: #8a8a92;
+  font-size: 1.05vw;
+  padding: 2vw 0.3vw;
+}
+
+/* ---------------------------------------------------------------- small screens */
+@media (max-aspect-ratio: 1/1) {
+  body { cursor: default; }
+  #app { padding-left: 4vw; padding-right: 4vw; padding-bottom: 18vh; }
+  .hero { min-height: 40vh; margin: 0 -4vw; padding: 0 4vw 4vw; }
+  .hero-info { max-width: 88vw; }
+  .hero h1 { font-size: 8vw; }
+  .hero-kicker { font-size: 2.6vw; }
+  .hero-desc { font-size: 3.4vw; max-width: 86vw; margin: 2.4vw 0 4vw; }
+  .btn { font-size: 3.4vw; padding: 2.6vw 5vw; border-width: 0.4vw; border-radius: 10vw; }
+  .btn.round { width: 12vw; height: 12vw; font-size: 3.2vw; }
+  .row-title { font-size: 4vw; margin: 0 0 2.6vw 0.6vw; }
+  .card { width: 30vw; border-radius: 2vw; }
+  .card .label { font-size: 2.9vw; padding: 1.8vw 2vw 2.2vw; max-height: 12vw; }
+  .card .progress { height: 0.8vw; }
+  .rail {
+    top: auto; bottom: 0; left: 0; right: 0;
+    width: 100%; height: 11vh;
+    flex-direction: row;
+    gap: 6vw;
+    background: rgba(16,16,16,0.97);
+    border-top: 0.2vw solid #232329;
+  }
+  .rail-item { width: 11vw; height: 11vw; font-size: 5vw; }
+  .track { gap: 2.6vw; }
+  .player-ui { padding: 4vw 5vw; }
+  .player-top h2 { font-size: 4.2vw; }
+  .player-controls { gap: 3.4vw; }
+  .player-bar { font-size: 3vw; gap: 2.6vw; }
+  .timeline { height: 1vw; }
+  .modal-card { padding: 6vw 6vw; border-radius: 3vw; width: 88vw; }
+  .modal-card h2 { font-size: 5.4vw; }
+  .modal-card p { font-size: 3.6vw; }
+  .empty { font-size: 3.6vw; }
+}

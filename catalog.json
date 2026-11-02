@@ -1,0 +1,63 @@
+{
+  "hero": {
+    "id": "demo-1",
+    "title": "Demonstração",
+    "desc": "Teste de reprodução local: HLS curto gerado para validar o player, o retomar de onde parou e a navegação por controle remoto.",
+    "kicker": "TESTE",
+    "video": "./demo/a/index.m3u8"
+  },
+  "rows": [
+    {
+      "title": "Testes de reprodução",
+      "items": [
+        {
+          "id": "demo-1",
+          "title": "Clipe A — 24s",
+          "video": "./demo/a/index.m3u8",
+          "desc": "Clipe de teste A."
+        },
+        {
+          "id": "demo-2",
+          "title": "Clipe B — 24s",
+          "video": "./demo/b/index.m3u8",
+          "desc": "Clipe de teste B."
+        },
+        {
+          "id": "demo-3",
+          "title": "Teste de retomada",
+          "video": "./demo/a/index.m3u8",
+          "desc": "Abra, assista alguns segundos e volte: continua de onde parou."
+        },
+        {
+          "id": "demo-4",
+          "title": "Teste de controle remoto",
+          "video": "./demo/b/index.m3u8",
+          "desc": "Setas navegam, OK abre, voltar fecha."
+        },
+        {
+          "id": "demo-5",
+          "title": "Teste em paisagem",
+          "video": "./demo/a/index.m3u8",
+          "desc": "Gire o aparelho: o layout acompanha."
+        },
+        {
+          "id": "demo-6",
+          "title": "Teste no celular",
+          "video": "./demo/b/index.m3u8",
+          "desc": "A mesma página em retrato."
+        }
+      ]
+    },
+    {
+      "title": "Seus vídeos",
+      "items": [
+        {
+          "id": "meu-1",
+          "title": "Adicione aqui",
+          "video": "",
+          "desc": "Coloque o link do seu .m3u8 ou .mp4 em catalog.json."
+        }
+      ]
+    }
+  ]
+}

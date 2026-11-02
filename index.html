@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Extrato de Tomate</title>
+<meta name="theme-color" content="#101010">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<div id="app">
+  <header id="hero" class="hero">
+    <div class="hero-bg" id="heroBg"></div>
+    <div class="hero-info">
+      <p class="hero-kicker" id="heroKicker">DESTAQUE</p>
+      <h1 id="heroTitle">Extrato de Tomate</h1>
+      <p id="heroDesc" class="hero-desc"></p>
+      <div class="hero-actions">
+        <button class="btn primary focusable" id="heroPlay" tabindex="0">▶ Assistir</button>
+        <button class="btn focusable" id="heroInfo" tabindex="0">Mais informações</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="rows"></main>
+
+  <nav id="rail" class="rail">
+    <button class="rail-item focusable" data-go="home" tabindex="0" title="Início">⌂</button>
+    <button class="rail-item focusable" data-go="continue" tabindex="0" title="Continuar">▶</button>
+    <button class="rail-item focusable" data-go="search" tabindex="0" title="Buscar">⌕</button>
+    <button class="rail-item focusable" data-go="reload" tabindex="0" title="Recarregar">⟳</button>
+  </nav>
+</div>
+
+<div id="player" class="player hidden">
+  <video id="video" playsinline></video>
+  <div class="player-ui" id="playerUi" data-autofocus>
+    <div class="player-top">
+      <h2 id="playerTitle"></h2>
+      <button class="btn small focusable" id="playerClose" tabindex="0">✕</button>
+    </div>
+    <div class="player-controls">
+      <button class="btn round focusable" id="btnBack" tabindex="0">−10s</button>
+      <button class="btn round primary focusable" id="btnPlay" tabindex="0">▶</button>
+      <button class="btn round focusable" id="btnFwd" tabindex="0">+10s</button>
+      <button class="btn round focusable" id="btnNext" tabindex="0">⏭</button>
+      <button class="btn round focusable" id="btnMute" tabindex="0">🔊</button>
+    </div>
+    <div class="player-bar">
+      <span id="curTime">00:00</span>
+      <div class="timeline"><div class="timeline-fill" id="timelineFill"></div></div>
+      <span id="durTime">00:00</span>
+    </div>
+  </div>
+  <div class="player-hint hidden" id="playerHint">aperte OK para dar play</div>
+</div>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-card">
+    <h2 id="modalTitle"></h2>
+    <p id="modalDesc"></p>
+    <div class="modal-actions">
+      <button class="btn primary focusable" id="modalPlay" tabindex="0">▶ Assistir</button>
+      <button class="btn focusable" id="modalClose" tabindex="0">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
+<script src="./config.js"></script>
+<script src="./app.js" defer></script>
+</body>
+</html>
