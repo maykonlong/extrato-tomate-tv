@@ -373,6 +373,15 @@ main { padding-bottom: 6vh; }
   .diag-body { font-size: 3.2vw; max-height: 44vh; }
 }
 
+.welcome-list {
+  max-width: 46vw;
+  gap: 0.7vw;
+}
+
+@media (max-aspect-ratio: 1/1) {
+  .welcome-list { max-width: 92vw; }
+}
+
 .episode-list {
   max-height: 38vh;
   overflow-y: auto;

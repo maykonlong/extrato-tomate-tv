@@ -721,6 +721,50 @@
 
 
 
+
+  // ---------------------------------------------------------------- porta de entrada
+  function renderWelcome() {
+    var host = $('rows');
+    host.innerHTML = '';
+
+    $('heroTitle').textContent = 'Extrato de Tomate';
+    $('heroKicker').textContent = 'SEM ANÚNCIOS';
+    $('heroDesc').textContent = 'Entre com a mesma conta do aplicativo. O login acontece ' +
+      'aqui no seu navegador — a senha não passa por servidor nenhum nosso, e o acesso fica ' +
+      'guardado só neste aparelho.';
+    $('heroPlay').textContent = '☺ Entrar';
+    $('heroPlay').onclick = function () { openLogin(); };
+    $('heroInfo').onclick = function () { openDiagnostic(); };
+
+    var section = document.createElement('section');
+    section.className = 'row';
+    var title = document.createElement('h2');
+    title.className = 'row-title';
+    title.textContent = 'Primeiros passos';
+    section.appendChild(title);
+
+    var list = document.createElement('div');
+    list.className = 'episode-list welcome-list';
+    [['☺  Entrar na conta', 'abre o formulário com captcha', function () { openLogin(); }],
+     ['⟳  Ver demonstração', 'clipes de teste, sem conta', function () {
+       location.href = location.pathname + '?demo=1';
+     }],
+     ['⚙  Diagnóstico', 'testa token, catálogo, episódios e CORS', function () { openDiagnostic(); }]
+    ].forEach(function (row) {
+      var button = document.createElement('button');
+      button.className = 'btn focusable episode-item';
+      button.tabIndex = 0;
+      button.textContent = row[0] + ' — ' + row[1];
+      button.onclick = row[2];
+      list.appendChild(button);
+    });
+    section.appendChild(list);
+    host.appendChild(section);
+
+    var cards = focusables();
+    if (cards.length) { setFocus(cards[0]); }
+  }
+
   function loadLocalCatalog() {
     fetch('./catalog.json', { cache: 'no-cache' })
       .then(function (response) { return response.json(); })
@@ -868,6 +912,11 @@
 
   function reloadFromServer() {
     var host = $('rows');
+    var tomatoMode = window.EXTRATO_CONFIG && window.EXTRATO_CONFIG.mode !== 'local';
+    if (tomatoMode && !loggedIn() && !/[?&]demo=1/.test(location.search)) {
+      renderWelcome();
+      return;
+    }
     host.innerHTML = '<p class="empty">Carregando catálogo…</p>';
     if (!loggedIn()) {
       loadLocalCatalog();
@@ -976,6 +1025,17 @@
 
     if (/[?&]diag=1/.test(location.search)) {
       setTimeout(openDiagnostic, 400);
+    }
+
+    if (/[?&]reset=1/.test(location.search) && navigator.serviceWorker) {
+      Promise.resolve(navigator.serviceWorker.getRegistrations()).then(function (regs) {
+        regs.forEach(function (reg) { reg.unregister(); });
+        return caches.keys();
+      }).then(function (keys) {
+        keys.forEach(function (key) { caches.delete(key); });
+        location.href = location.pathname;
+      });
+      return;
     }
 
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {

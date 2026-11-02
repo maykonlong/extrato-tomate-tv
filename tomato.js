@@ -67,18 +67,31 @@
     if (options.body) {
       headers['Content-Type'] = 'application/json';
     }
-    return fetch(apiHost() + path, {
+    var controller = null;
+    var timer = null;
+    var settings = {
       method: options.method || 'GET',
       headers: headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
       mode: 'cors',
       credentials: 'omit'
-    }).then(function (response) {
+    };
+    if (typeof AbortController !== 'undefined') {
+      controller = new AbortController();
+      settings.signal = controller.signal;
+      timer = setTimeout(function () { controller.abort(); }, options.timeout || 15000);
+    }
+    return fetch(apiHost() + path, settings).then(function (response) {
+      if (timer) { clearTimeout(timer); }
       return response.text().then(function (text) {
         var parsed = null;
         try { parsed = JSON.parse(text); } catch (e) { parsed = { raw: text }; }
         return { ok: response.ok, status: response.status, data: parsed };
       });
+    }).catch(function (error) {
+      if (timer) { clearTimeout(timer); }
+      throw new Error(error && error.name === 'AbortError'
+        ? 'servidor não respondeu em 15s' : 'falha de rede: ' + (error && error.message));
     });
   }
 
