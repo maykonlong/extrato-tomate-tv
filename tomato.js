@@ -102,7 +102,7 @@
       body: {
         email: email,
         password: password,
-        verification: captchaToken || '',
+        verification: (captchaToken || captchaState.token || ''),
         fingerprint: deviceFingerprint()
       }
     }).then(function (result) {
@@ -111,11 +111,16 @@
       var ok = (statusCode === 0 || statusCode === '0' || statusCode === 3 || statusCode === '3')
         && findToken(data);
       if (!ok) {
+        var code = String(statusCode);
         var message = data.message || 'Login recusado pelo servidor.';
-        if (String(statusCode) === '1') { message = 'E-mail ou senha inválidos.'; }
-        if (String(statusCode) === '2') { message = 'Captcha inválido ou expirado — resolva de novo.'; }
-        var error = new Error(message);
+        if (code === '1') { message = 'E-mail ou senha inválidos.'; }
+        else if (code === '2') { message = 'Captcha inválido ou expirado — resolva de novo.'; }
+        else if (code === '4') { message = 'Conta bloqueada: ' + (data.user_ban_reason_text || 'sem motivo informado'); }
+        else { message = message + ' (código ' + code + ')'; }
+        var keys = data && typeof data === 'object' ? Object.keys(data).slice(0, 6).join(', ') : '';
+        var error = new Error(message + (keys ? ' · resposta: ' + keys : ''));
         error.payload = data;
+        try { window.__lastLogin = { code: code, keys: keys }; } catch (e) { }
         throw error;
       }
       var found = findToken(data);
@@ -324,28 +329,82 @@
   }
 
   // ---------------------------------------------------------------- captcha
-  function loadCaptcha(container, siteKey) {
-    return new Promise(function (resolve, reject) {
-      function render() {
-        if (!global.hcaptcha) { reject(new Error('hCaptcha não carregou.')); return; }
-        container.innerHTML = '';
-        var widgetId = global.hcaptcha.render(container, {
-          sitekey: siteKey,
-          theme: 'dark',
-          callback: function (response) { resolve({ token: response, widgetId: widgetId }); }
-        });
-      }
-      if (global.hcaptcha) { render(); return; }
-      var script = document.createElement('script');
-      script.src = 'https://js.hcaptcha.com/1/api.js?render=explicit&hl=pt';
-      script.async = true;
-      script.defer = true;
-      script.onload = render;
-      script.onerror = function () { reject(new Error('Falha ao carregar o hCaptcha.')); };
-      document.head.appendChild(script);
-    });
+  /* Com render=explicit o hCaptcha exige esperar o onload da API; renderizar
+     antes disso falha silenciosamente e o login ia sem verificação. */
+  var captchaState = { token: '', widgetId: null, ready: false };
+
+  function captchaToken() {
+    return captchaState.token || '';
   }
 
+  function loadCaptcha(container, siteKey) {
+    return new Promise(function (resolve, reject) {
+      var settled = false;
+
+      function done() {
+        if (settled) { return; }
+        settled = true;
+        resolve({
+          getToken: captchaToken,
+          widgetId: captchaState.widgetId,
+          reset: function () {
+            captchaState.token = '';
+            if (global.hcaptcha && captchaState.widgetId !== null) {
+              try { global.hcaptcha.reset(captchaState.widgetId); } catch (e) { }
+            }
+          }
+        });
+      }
+
+      function render() {
+        if (!global.hcaptcha || typeof global.hcaptcha.render !== 'function') {
+          return false;
+        }
+        if (captchaState.ready) { done(); return true; }
+        try {
+          container.innerHTML = '';
+          captchaState.widgetId = global.hcaptcha.render(container, {
+            sitekey: siteKey,
+            theme: 'dark',
+            callback: function (response) { captchaState.token = response; },
+            'expired-callback': function () { captchaState.token = ''; },
+            'error-callback': function () { captchaState.token = ''; }
+          });
+          captchaState.ready = true;
+          done();
+          return true;
+        } catch (error) {
+          reject(error);
+          return true;
+        }
+      }
+
+      if (render()) { return; }
+
+      global.__extratoCaptchaReady = function () { render(); };
+
+      var script = document.querySelector('script[data-extrato-hcaptcha]');
+      if (!script) {
+        script = document.createElement('script');
+        script.src = 'https://js.hcaptcha.com/1/api.js?render=explicit&hl=pt&onload=__extratoCaptchaReady';
+        script.async = true;
+        script.defer = true;
+        script.setAttribute('data-extrato-hcaptcha', '1');
+        script.onerror = function () { reject(new Error('Falha ao carregar o hCaptcha.')); };
+        document.head.appendChild(script);
+      }
+
+      // rede lenta: tenta de novo por conta própria antes de desistir
+      var attempts = 0;
+      var poll = setInterval(function () {
+        attempts++;
+        if (render() || attempts > 40) {
+          clearInterval(poll);
+          if (attempts > 40) { reject(new Error('hCaptcha não carregou a tempo.')); }
+        }
+      }, 250);
+    });
+  }
 
   // ---------------------------------------------------------------- diagnóstico
   function diagnose() {
@@ -468,6 +527,7 @@
     setRelayBase: setRelayBase,
     api: api,
     loadCaptcha: loadCaptcha,
+    captchaToken: captchaToken,
     diagnose: diagnose,
     prepare: prepare
   };

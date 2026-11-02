@@ -858,7 +858,11 @@
     if (window.Tomato && window.EXTRATO_CONFIG && window.EXTRATO_CONFIG.hcaptchaKey) {
       window.Tomato.loadCaptcha(captchaHost, window.EXTRATO_CONFIG.hcaptchaKey)
         .then(function (handle) { captchaHandle = handle; })
-        .catch(function () { captchaHost.textContent = 'Captcha indisponível; tente sem ele.'; });
+        .catch(function (error) {
+          captchaHost.textContent = 'Captcha não carregou (' + (error.message || '') +
+            '). Dá para tentar entrar sem ele.';
+          captchaHost.classList.add('login-error');
+        });
     }
     setTimeout(function () {
       var email = $('loginEmail');
@@ -887,7 +891,7 @@
     }
     $('loginSubmit').textContent = 'Entrando…';
     $('loginError').classList.add('hidden');
-    window.Tomato.login(email, password, captchaHandle ? captchaHandle.token : '')
+    window.Tomato.login(email, password, captchaHandle ? captchaHandle.getToken() : '')
       .then(function () {
         $('loginSubmit').textContent = 'Entrar';
         closeLogin();
@@ -896,8 +900,8 @@
       .catch(function (error) {
         $('loginSubmit').textContent = 'Entrar';
         showLoginError(error.message || 'Falha ao entrar.');
-        if (captchaHandle && window.hcaptcha) {
-          try { window.hcaptcha.reset(captchaHandle.widgetId); } catch (e) { }
+        if (captchaHandle && captchaHandle.reset) {
+          try { captchaHandle.reset(); } catch (e) { }
         }
       });
   }
