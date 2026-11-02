@@ -11,17 +11,34 @@
  * Teste:   https://SEU-WORKER.workers.dev/health
  */
 
+const API_HOST = 'prod-api.tomatoanimes.com';
+
+/* Caminhos da API: quando o app aponta o host para cá, a requisição chega com o
+   caminho original (/v2/..., /login/, /season/...) e é repassada para a API.
+   É o que faz o Wi-Fi bloqueado voltar a funcionar: quem fala com o servidor
+   é o Cloudflare, não o IP da sua casa. */
+const API_PREFIXES = ['/v2/', '/login', '/register', '/checkupdate', '/season/',
+  '/animequery', '/uploadpicture', '/bounce_login', '/commentsaction', '/favoritesaction'];
+
+function isApiPath(pathname) {
+  return API_PREFIXES.some(function (prefix) {
+    var base = prefix.replace(/\/$/, '');
+    return pathname === base || pathname.indexOf(prefix) === 0;
+  });
+}
+
 const ALLOWED_HOSTS = [
   'tomatoanimes.com',
   'prod-api.tomatoanimes.com',
   'cdn.tomatoanimes.com',
   'el-content.com',
-  'hacsadhost.workers.dev'
+  'hacsadhost.workers.dev',
+  'easylearn-cdn.cloud'
 ];
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, OPTIONS',
   'Access-Control-Allow-Headers': 'Range, Authorization, Accept, Content-Type',
   'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
   'Access-Control-Max-Age': '86400'
@@ -50,7 +67,10 @@ export default {
       return json({ ok: true, service: 'extrato-relay', at: new Date().toISOString() });
     }
 
-    const target = incoming.searchParams.get('u');
+    let target = incoming.searchParams.get('u');
+    if (!target && isApiPath(incoming.pathname)) {
+      target = 'https://' + API_HOST + incoming.pathname + incoming.search;
+    }
     if (!target) {
       return json({ error: 'missing u parameter', usage: '/?u=<url assinada>' }, 400);
     }
@@ -67,7 +87,7 @@ export default {
     }
 
     const headers = new Headers();
-    const pass = ['range', 'authorization', 'accept', 'user-agent'];
+    const pass = ['range', 'authorization', 'accept', 'user-agent', 'content-type'];
     for (const name of pass) {
       const value = request.headers.get(name);
       if (value) {
@@ -78,11 +98,16 @@ export default {
       headers.set('user-agent', 'tomato-android');
     }
 
+    const method = request.method === 'HEAD' ? 'HEAD'
+      : (request.method === 'POST' || request.method === 'PUT' ? request.method : 'GET');
+    const bodyBuffer = (method === 'POST' || method === 'PUT') ? await request.text() : undefined;
+
     let upstream;
     try {
       upstream = await fetch(upstreamUrl.toString(), {
-        method: request.method === 'HEAD' ? 'HEAD' : 'GET',
+        method,
         headers,
+        body: bodyBuffer,
         redirect: 'follow'
       });
     } catch (error) {

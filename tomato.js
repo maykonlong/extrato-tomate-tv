@@ -95,7 +95,12 @@
       settings.signal = controller.signal;
       timer = setTimeout(function () { controller.abort(); }, options.timeout || 15000);
     }
-    return fetch(apiHost() + path, settings).then(function (response) {
+    var base = relayBase();
+    var target = apiHost() + path;
+    if (base && !options.direct) {
+      target = base + '/?u=' + encodeURIComponent(target);
+    }
+    return fetch(target, settings).then(function (response) {
       if (timer) { clearTimeout(timer); }
       return response.text().then(function (text) {
         var parsed = null;
@@ -283,9 +288,11 @@
 
 
   function describeStatus(status, what) {
-    if (status === 500 || status === 502 || status === 503 || status === 504) {
-      return 'o servidor recusou o ' + what + ' (HTTP ' + status + '). Acontece por IP: ' +
-        'se estiver no Wi-Fi, tente o 5G ou espere alguns minutos.';
+    if (status === 500 || status === 502 || status === 503 || status === 504
+        || status === 429 || status === 403) {
+      return 'o servidor recusou o ' + what + ' (HTTP ' + status + '). É limite por IP: ' +
+        'ative o modo avião por 5 segundos e volte (pega IP novo), troque para o 5G, ' +
+        'ou configure o relay no Diagnóstico para nunca mais esbarrar nisso.';
     }
     if (status === 403) {
       return 'sessão recusada (HTTP 403) — clique em ☺ e entre de novo.';
