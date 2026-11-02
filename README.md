@@ -45,3 +45,24 @@ npx wrangler deploy relay/worker.js --name extrato-relay
 
 Depois coloque o endereço em `config.js` (`relayUrl`) e use as URLs do CDN no
 formato `https://SEU-WORKER.workers.dev/?u=<url assinada codificada>`.
+
+
+## Modo servidor (login no navegador)
+
+Com `mode: 'tomato'` em `config.js`, a página mostra o catálogo local enquanto
+ninguém entrou. O ícone ☺ do menu abre o login: e-mail, senha e hCaptcha
+resolvidos **na própria página**. O token fica no `localStorage` e nunca sai
+dali — não existe servidor nosso no meio.
+
+Autodiagnóstico: abra `?diag=1` (ou o botão que aparece quando o catálogo falha).
+Ele testa, passo a passo: token → catálogo → série → episódios → URL de stream →
+se o CDN libera o navegador (CORS).
+
+### Se o CDN bloquear (CORS)
+
+O relay em `relay/worker.js` resolve. Publique e ponha o endereço em
+`config.js` (`relayUrl`):
+
+```bash
+npx wrangler deploy relay/worker.js --name extrato-relay
+```

@@ -13,6 +13,7 @@
   var hideTimer = null;
   var saveTimer = null;
   var modalOpen = false;
+  var captchaHandle = null;
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -95,7 +96,13 @@
       }
     }
 
-    card.addEventListener('click', function () { openDetail(item); });
+    card.addEventListener('click', function () {
+      if (window.EXTRATO_CONFIG && window.EXTRATO_CONFIG.mode !== 'local' && loggedIn() && item.raw) {
+        openSeries(item);
+      } else {
+        openDetail(item);
+      }
+    });
     return card;
   }
 
@@ -146,14 +153,22 @@
     $('heroKicker').textContent = item.kicker || 'DESTAQUE';
     var bg = $('heroBg');
     bg.style.backgroundImage = 'url("' + artFor(item) + '")';
-    $('heroPlay').onclick = function () { play(item, 0); };
+    $('heroPlay').onclick = function () {
+      if (window.EXTRATO_CONFIG && window.EXTRATO_CONFIG.mode !== 'local' && loggedIn() && item.raw) {
+        openSeries(item);
+      } else {
+        play(item, 0);
+      }
+    };
     $('heroInfo').onclick = function () { openDetail(item); };
   }
 
   // ---------------------------------------------------------------- spatial navigation
   function focusables() {
     var scope = nav.scope === 'player' ? $('player')
-      : (nav.scope === 'search' ? $('search') : (modalOpen ? $('modal') : document));
+      : (nav.scope === 'search' ? $('search')
+        : (nav.scope === 'login' ? $('login')
+          : (nav.scope === 'diag' ? $('diag') : (modalOpen ? $('modal') : document))));
     var list = Array.prototype.slice.call(scope.querySelectorAll('.focusable'));
     return list.filter(function (el) {
       return el.offsetParent !== null || el === nav.current;
@@ -432,6 +447,20 @@
       $('btnPlay').textContent = '▶';
       $('playerUi').classList.remove('hidden-ui');
     });
+    video.addEventListener('error', function () {
+      if (!current || !current.episodeId || !window.Tomato) { return; }
+      if (current.recoveries === undefined) { current.recoveries = 0; }
+      if (current.recoveries >= 3) { return; }
+      current.recoveries++;
+      var resumeAt = video.currentTime || 0;
+      window.Tomato.streamUrl(current.episodeId).then(function (stream) {
+        var item = current;
+        item.video = stream.proxied || stream.direct;
+        item.direct = stream.direct;
+        play(item, resumeAt);
+      }).catch(function () { });
+    });
+
     video.addEventListener('ended', function () {
       persistProgress();
       closePlayer();
@@ -476,6 +505,21 @@
     var code = event.keyCode;
     var target = event.target;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+      return;
+    }
+
+    if (nav.scope === 'diag') {
+      if (includes(KEY.BACK, code)) {
+        event.preventDefault();
+        $('diag').classList.add('hidden');
+        modalOpen = false;
+        nav.scope = 'page';
+      }
+      return;
+    }
+
+    if (nav.scope === 'login') {
+      if (includes(KEY.BACK, code)) { event.preventDefault(); closeLogin(); }
       return;
     }
 
@@ -653,19 +697,15 @@
         if (action === 'home') { scrollToTop(); }
         else if (action === 'continue') { goContinue(); }
         else if (action === 'search') { openSearch(); }
+        else if (action === 'account') { openLogin(); }
         else if (action === 'reload') { location.reload(); }
       };
     });
   }
 
-  // ---------------------------------------------------------------- boot
-  function boot() {
-    document.addEventListener('keydown', handleKey, true);
-    document.addEventListener('mousemove', function () { document.body.classList.add('pointer'); });
-    wirePlayer();
-    wireRail();
-    requestAnimationFrame(pollGamepads);
 
+
+  function loadLocalCatalog() {
     fetch('./catalog.json', { cache: 'no-cache' })
       .then(function (response) { return response.json(); })
       .then(function (data) {
@@ -682,6 +722,231 @@
         empty.textContent = 'Não consegui carregar catalog.json.';
         $('rows').appendChild(empty);
       });
+  }
+
+
+  // ---------------------------------------------------------------- diagnóstico na tela
+  function openDiagnostic() {
+    var overlay = $('diag');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'diag';
+      overlay.className = 'modal';
+      overlay.innerHTML = '<div class="modal-card"><h2>Diagnóstico</h2>' +
+        '<div id="diagBody" class="diag-body">Testando…</div>' +
+        '<div class="modal-actions"><button class="btn focusable" id="diagRun" tabindex="0">Testar de novo</button>' +
+        '<button class="btn focusable" id="diagClose" tabindex="0">Fechar</button></div></div>';
+      document.body.appendChild(overlay);
+      $('diagClose').onclick = function () {
+        overlay.classList.add('hidden');
+        modalOpen = false;
+        nav.scope = 'page';
+      };
+      $('diagRun').onclick = function () { runDiagnostic(); };
+    }
+    overlay.classList.remove('hidden');
+    modalOpen = true;
+    nav.scope = 'diag';
+    runDiagnostic();
+  }
+
+  function runDiagnostic() {
+    var body = $('diagBody');
+    body.innerHTML = 'Testando…';
+    if (!window.Tomato) {
+      body.textContent = 'tomato.js não carregou.';
+      return;
+    }
+    window.Tomato.diagnose().then(function (steps) {
+      body.innerHTML = '';
+      steps.forEach(function (step) {
+        var line = document.createElement('div');
+        line.className = 'diag-line ' + (step.ok ? 'ok' : 'fail');
+        line.textContent = (step.ok ? '✓ ' : '✗ ') + step.name + (step.detail ? ' — ' + step.detail : '');
+        body.appendChild(line);
+      });
+    });
+  }
+
+  // ---------------------------------------------------------------- conta Tomate
+
+
+  function loggedIn() {
+    return !!(window.Tomato && window.Tomato.token());
+  }
+
+  function openLogin() {
+    var overlay = $('login');
+    overlay.classList.remove('hidden');
+    modalOpen = true;
+    nav.scope = 'login';
+    $('loginError').classList.add('hidden');
+    var logout = $('loginLogout');
+    if (loggedIn()) { logout.classList.remove('hidden'); } else { logout.classList.add('hidden'); }
+    var captchaHost = $('loginCaptcha');
+    captchaHost.innerHTML = '';
+    if (window.Tomato && window.EXTRATO_CONFIG && window.EXTRATO_CONFIG.hcaptchaKey) {
+      window.Tomato.loadCaptcha(captchaHost, window.EXTRATO_CONFIG.hcaptchaKey)
+        .then(function (handle) { captchaHandle = handle; })
+        .catch(function () { captchaHost.textContent = 'Captcha indisponível; tente sem ele.'; });
+    }
+    setTimeout(function () {
+      var email = $('loginEmail');
+      if (email) { email.focus(); }
+    }, 60);
+  }
+
+  function closeLogin() {
+    $('login').classList.add('hidden');
+    modalOpen = false;
+    nav.scope = 'page';
+  }
+
+  function showLoginError(message) {
+    var box = $('loginError');
+    box.textContent = message;
+    box.classList.remove('hidden');
+  }
+
+  function submitLogin() {
+    var email = $('loginEmail').value.trim();
+    var password = $('loginPassword').value;
+    if (!email || !password) {
+      showLoginError('Preencha e-mail e senha.');
+      return;
+    }
+    $('loginSubmit').textContent = 'Entrando…';
+    $('loginError').classList.add('hidden');
+    window.Tomato.login(email, password, captchaHandle ? captchaHandle.token : '')
+      .then(function () {
+        $('loginSubmit').textContent = 'Entrar';
+        closeLogin();
+        reloadFromServer();
+      })
+      .catch(function (error) {
+        $('loginSubmit').textContent = 'Entrar';
+        showLoginError(error.message || 'Falha ao entrar.');
+        if (captchaHandle && window.hcaptcha) {
+          try { window.hcaptcha.reset(captchaHandle.widgetId); } catch (e) { }
+        }
+      });
+  }
+
+  function logout() {
+    if (window.Tomato) { window.Tomato.clearToken(); }
+    $('login').classList.add('hidden');
+    modalOpen = false;
+    nav.scope = 'page';
+    reloadFromServer();
+  }
+
+  function reloadFromServer() {
+    var host = $('rows');
+    host.innerHTML = '<p class="empty">Carregando catálogo…</p>';
+    if (!loggedIn()) {
+      loadLocalCatalog();
+      return;
+    }
+    window.Tomato.loadCatalog().then(function (data) {
+      catalog = data;
+      setHero(data.hero);
+      buildContinueRow();
+      renderRows();
+      var list = focusables();
+      if (list.length) { setFocus(list[0]); }
+    }).catch(function (error) {
+      host.innerHTML = '';
+      var box = document.createElement('p');
+      box.className = 'empty';
+      box.textContent = 'Não consegui carregar o catálogo: ' + (error.message || '');
+      host.appendChild(box);
+      var help = document.createElement('button');
+      help.className = 'btn focusable';
+      help.tabIndex = 0;
+      help.textContent = 'Rodar diagnóstico';
+      help.onclick = openDiagnostic;
+      host.appendChild(help);
+    });
+  }
+
+  // ---------------------------------------------------------------- série -> episódios
+  function openSeries(item) {
+    current = item;
+    $('modalTitle').textContent = item.title || '';
+    $('modalDesc').textContent = 'Carregando episódios…';
+    $('modal').classList.remove('hidden');
+    modalOpen = true;
+    nav.scope = 'modal';
+    setFocus($('modalPlay'));
+    window.Tomato.loadSeries(item.id).then(function (data) {
+      if (data.item && data.item.desc) { $('modalDesc').textContent = data.item.desc; }
+      else { $('modalDesc').textContent = 'Escolha um episódio.'; }
+      var list = $('episodeList');
+      if (!list) {
+        list = document.createElement('div');
+        list.id = 'episodeList';
+        list.className = 'episode-list';
+        $('modalDesc').parentNode.insertBefore(list, $('modalDesc').nextSibling);
+      }
+      list.innerHTML = '';
+      if (!data.seasons.length) {
+        list.textContent = 'Nenhum episódio encontrado.';
+        return;
+      }
+      data.seasons.forEach(function (episode) {
+        var button = document.createElement('button');
+        button.className = 'btn focusable episode-item';
+        button.tabIndex = 0;
+        button.textContent = (episode.number ? episode.number + '. ' : '') + episode.title;
+        button.onclick = function () { playEpisode(episode); };
+        list.appendChild(button);
+      });
+      $('modalPlay').classList.add('hidden');
+    }).catch(function (error) {
+      $('modalDesc').textContent = error.message || 'Falha ao abrir a série.';
+    });
+  }
+
+  function playEpisode(episode) {
+    $('modal').classList.add('hidden');
+    modalOpen = false;
+    window.Tomato.streamUrl(episode.id).then(function (stream) {
+      play({
+        id: 'ep-' + episode.id,
+        title: episode.title,
+        video: stream.proxied || stream.direct,
+        direct: stream.direct,
+        episodeId: episode.id
+      }, 0);
+    }).catch(function (error) {
+      $('modalTitle').textContent = 'Não deu para tocar';
+      $('modalDesc').textContent = error.message || 'Stream indisponível.';
+      $('modal').classList.remove('hidden');
+      modalOpen = true;
+      nav.scope = 'modal';
+    });
+  }
+
+  // ---------------------------------------------------------------- boot
+  function boot() {
+    document.addEventListener('keydown', handleKey, true);
+    document.addEventListener('mousemove', function () { document.body.classList.add('pointer'); });
+    wirePlayer();
+    wireRail();
+    requestAnimationFrame(pollGamepads);
+
+    $('loginSubmit').onclick = function () { submitLogin(); };
+    $('loginClose').onclick = function () { closeLogin(); };
+    $('loginLogout').onclick = function () { logout(); };
+    $('loginPassword').addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { event.preventDefault(); submitLogin(); }
+    });
+
+    reloadFromServer();
+
+    if (/[?&]diag=1/.test(location.search)) {
+      setTimeout(openDiagnostic, 400);
+    }
 
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       navigator.serviceWorker.register('./sw.js').catch(function () { });

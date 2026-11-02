@@ -313,6 +313,66 @@ main { padding-bottom: 6vh; }
   .search-results { font-size: 3.4vw; max-height: 30vh; }
 }
 
+/* ---------------------------------------------------------------- login */
+.login-card { width: 40vw; }
+
+.login-input {
+  width: 100%;
+  margin-bottom: 0.8vw;
+  padding: 0.9vw 1.1vw;
+  border-radius: 0.7vw;
+  border: 0.12vw solid #33333f;
+  background: #101014;
+  color: #fff;
+  font-size: 1vw;
+}
+
+.login-input:focus { outline: none; border-color: #f25022; }
+
+.login-captcha { margin: 0.6vw 0 1vw; }
+.login-captcha:empty { display: none; }
+
+.login-error {
+  color: #ff7a5c;
+  font-size: 0.92vw;
+  margin: 0 0 1vw;
+}
+
+.diag-body {
+  font-size: 0.92vw;
+  line-height: 1.6;
+  max-height: 40vh;
+  overflow-y: auto;
+  margin-bottom: 1.2vw;
+  color: #d5d5dc;
+}
+
+.diag-line { padding: 0.2vw 0; }
+.diag-line.ok { color: #8de08d; }
+.diag-line.fail { color: #ff8a6a; }
+
+@media (max-aspect-ratio: 1/1) {
+  .diag-body { font-size: 3.2vw; max-height: 44vh; }
+}
+
+.episode-list {
+  max-height: 38vh;
+  overflow-y: auto;
+  margin: 0 0 1.2vw;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45vw;
+}
+
+.episode-item { text-align: left; width: 100%; }
+
+@media (max-aspect-ratio: 1/1) {
+  .login-card { width: 90vw; }
+  .login-input { font-size: 3.6vw; padding: 3vw; border-radius: 2vw; border-width: 0.3vw; margin-bottom: 2.6vw; }
+  .login-error { font-size: 3.2vw; }
+  .episode-list { max-height: 40vh; gap: 1.6vw; }
+}
+
 .empty {
   color: #8a8a92;
   font-size: 1.05vw;

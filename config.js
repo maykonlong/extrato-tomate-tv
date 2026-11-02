@@ -1,8 +1,10 @@
 /* Configuração — edite só este arquivo.
-   RELAY_URL: endereço do seu Cloudflare Worker (relay/worker.js). Sem ele, só o
-   catálogo local toca; o CDN do servidor bloqueia o navegador por falta de CORS. */
+   mode: 'tomato' usa o servidor (login + catálogo + player) e cai para o catálogo
+   local enquanto ninguém estiver logado. 'local' fica só no catalog.json.
+   relayUrl: Cloudflare Worker (relay/worker.js) que resolve o CORS do CDN. */
 window.EXTRATO_CONFIG = {
-  relayUrl: '',          // ex.: 'https://extrato-relay.seu-usuario.workers.dev'
+  mode: 'tomato',
   apiHost: 'prod-api.tomatoanimes.com',
-  defaultQuality: '720p'
+  hcaptchaKey: 'd0706611-1d89-4b8c-af79-3caf0f14feba',
+  relayUrl: ''
 };

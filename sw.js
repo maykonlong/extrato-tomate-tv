@@ -1,7 +1,7 @@
-/* Cache do casco (HTML/CSS/JS). Vídeo nunca é cacheado: HLS em cache quebra a retomada. */
-var CACHE = 'extrato-shell-v1';
-var SHELL = ['./','./index.html','./styles.css','./app.js','./config.js','./catalog.json',
-             './manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
+/* Casco em cache, mas sempre tentando a rede primeiro: JS velho em TV dá bug fantasma. */
+var CACHE = 'extrato-shell-v2';
+var SHELL = ['./','./index.html','./styles.css','./app.js','./tomato.js','./config.js',
+             './catalog.json','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
 
 self.addEventListener('install', function (event) {
   event.waitUntil(caches.open(CACHE).then(function (cache) {
@@ -19,15 +19,20 @@ self.addEventListener('activate', function (event) {
 self.addEventListener('fetch', function (event) {
   var url = event.request.url;
   if (url.indexOf('.m3u8') >= 0 || url.indexOf('.ts') >= 0 || url.indexOf('.mp4') >= 0) {
-    return; // mídia: direto da rede
+    return; // mídia nunca em cache
+  }
+  if (event.request.method !== 'GET' || url.indexOf('prod-api') >= 0) {
+    return; // API sempre na rede
   }
   event.respondWith(
-    caches.match(event.request).then(function (cached) {
-      return cached || fetch(event.request).then(function (response) {
-        var copy = response.clone();
-        caches.open(CACHE).then(function (cache) { cache.put(event.request, copy); }).catch(function () {});
-        return response;
-      }).catch(function () { return caches.match('./index.html'); });
+    fetch(event.request).then(function (response) {
+      var copy = response.clone();
+      caches.open(CACHE).then(function (cache) { cache.put(event.request, copy); }).catch(function () {});
+      return response;
+    }).catch(function () {
+      return caches.match(event.request).then(function (cached) {
+        return cached || caches.match('./index.html');
+      });
     })
   );
 });

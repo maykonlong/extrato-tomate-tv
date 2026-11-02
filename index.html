@@ -31,6 +31,7 @@
     <button class="rail-item focusable" data-go="home" tabindex="0" title="Início">⌂</button>
     <button class="rail-item focusable" data-go="continue" tabindex="0" title="Continuar">▶</button>
     <button class="rail-item focusable" data-go="search" tabindex="0" title="Buscar">⌕</button>
+    <button class="rail-item focusable" data-go="account" tabindex="0" title="Entrar">☺</button>
     <button class="rail-item focusable" data-go="reload" tabindex="0" title="Recarregar">⟳</button>
   </nav>
 </div>
@@ -58,6 +59,22 @@
   <div class="player-hint hidden" id="playerHint">aperte OK para dar play</div>
 </div>
 
+<div id="login" class="modal hidden">
+  <div class="modal-card login-card">
+    <h2>Entrar</h2>
+    <p id="loginInfo">Use a mesma conta do aplicativo. O token fica salvo neste navegador; nada é enviado para outro servidor.</p>
+    <input id="loginEmail" class="login-input" type="email" placeholder="E-mail" autocomplete="username">
+    <input id="loginPassword" class="login-input" type="password" placeholder="Senha" autocomplete="current-password">
+    <div id="loginCaptcha" class="login-captcha"></div>
+    <p id="loginError" class="login-error hidden"></p>
+    <div class="modal-actions">
+      <button class="btn primary focusable" id="loginSubmit" tabindex="0">Entrar</button>
+      <button class="btn focusable" id="loginClose" tabindex="0">Fechar</button>
+      <button class="btn focusable hidden" id="loginLogout" tabindex="0">Sair da conta</button>
+    </div>
+  </div>
+</div>
+
 <div id="modal" class="modal hidden">
   <div class="modal-card">
     <h2 id="modalTitle"></h2>
@@ -71,6 +88,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
 <script src="./config.js"></script>
+<script src="./tomato.js"></script>
 <script src="./app.js" defer></script>
 </body>
 </html>
