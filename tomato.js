@@ -99,8 +99,9 @@
       if (timer) { clearTimeout(timer); }
       return response.text().then(function (text) {
         var parsed = null;
-        try { parsed = JSON.parse(text); } catch (e) { parsed = { raw: text }; }
-        return { ok: response.ok, status: response.status, data: parsed };
+        var isJson = true;
+        try { parsed = JSON.parse(text); } catch (e) { parsed = { raw: text }; isJson = false; }
+        return { ok: response.ok, status: response.status, data: parsed, isJson: isJson };
       });
     }).catch(function (error) {
       if (timer) { clearTimeout(timer); }
@@ -151,6 +152,11 @@
       }
       if (code === '1') {
         throw new Error('E-mail ou senha inválidos.');
+      }
+      if (result.isJson === false || code === 'undefined') {
+        throw new Error('o servidor respondeu HTTP ' + result.status +
+          ' sem dados válidos — está fora do ar ou bloqueando esta rede. Tente em alguns minutos ' +
+          'ou por outra conexão.');
       }
       var keys = Object.keys(data).slice(0, 8).join(', ');
       throw new Error((data.message || 'Login recusado') + ' (código ' + code + ')' +
