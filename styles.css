@@ -250,6 +250,24 @@ main { padding-bottom: 6vh; }
 .timeline { flex: 1; height: 0.32vw; background: rgba(255,255,255,0.2); border-radius: 1vw; overflow: hidden; }
 .timeline-fill { height: 100%; width: 0%; background: #f25022; }
 
+.player-notice {
+  position: absolute;
+  top: 5vh;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(200,60,30,0.92);
+  color: #fff;
+  padding: 0.8vw 1.6vw;
+  border-radius: 2vw;
+  font-size: 0.95vw;
+  max-width: 70vw;
+  text-align: center;
+}
+
+@media (max-aspect-ratio: 1/1) {
+  .player-notice { font-size: 3.2vw; padding: 2.6vw 4vw; max-width: 88vw; top: 3vh; }
+}
+
 .player-hint {
   position: absolute;
   bottom: 8vh;

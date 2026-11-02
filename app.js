@@ -315,6 +315,19 @@
     current = item;
     $('player').classList.remove('hidden');
     $('playerTitle').textContent = item.title || '';
+    var notice = $('playerNotice');
+    if (!notice) {
+      notice = document.createElement('div');
+      notice.id = 'playerNotice';
+      notice.className = 'player-notice hidden';
+      $('player').appendChild(notice);
+    }
+    if (item.warning) {
+      notice.textContent = 'Sem relay: o CDN bloqueia o navegador. Publique o Worker (2 cliques) e cole o endereço em config.js.';
+      notice.classList.remove('hidden');
+    } else {
+      notice.classList.add('hidden');
+    }
     nav.scope = 'player';
     var video = $('video');
 
@@ -454,10 +467,13 @@
       current.recoveries++;
       var resumeAt = video.currentTime || 0;
       window.Tomato.streamUrl(current.episodeId).then(function (stream) {
-        var item = current;
-        item.video = stream.proxied || stream.direct;
-        item.direct = stream.direct;
-        play(item, resumeAt);
+        return window.Tomato.prepare(stream.direct).then(function (prepared) {
+          var item = current;
+          item.video = prepared.playlist;
+          item.direct = stream.direct;
+          item.transport = prepared.mode;
+          play(item, resumeAt);
+        });
       }).catch(function () { });
     });
 
@@ -734,7 +750,9 @@
       overlay.className = 'modal';
       overlay.innerHTML = '<div class="modal-card"><h2>Diagnóstico</h2>' +
         '<div id="diagBody" class="diag-body">Testando…</div>' +
-        '<div class="modal-actions"><button class="btn focusable" id="diagRun" tabindex="0">Testar de novo</button>' +
+        '<input id="relayInput" class="login-input" type="url" placeholder="Endereço do relay (https://extrato-relay.SEU-USUARIO.workers.dev)">' +
+        '<div class="modal-actions"><button class="btn primary focusable" id="relaySave" tabindex="0">Salvar relay</button>' +
+        '<button class="btn focusable" id="diagRun" tabindex="0">Testar de novo</button>' +
         '<button class="btn focusable" id="diagClose" tabindex="0">Fechar</button></div></div>';
       document.body.appendChild(overlay);
       $('diagClose').onclick = function () {
@@ -743,10 +761,18 @@
         nav.scope = 'page';
       };
       $('diagRun').onclick = function () { runDiagnostic(); };
+      $('relaySave').onclick = function () {
+        var value = $('relayInput').value.trim();
+        if (window.Tomato) { window.Tomato.setRelayBase(value); }
+        runDiagnostic();
+      };
     }
     overlay.classList.remove('hidden');
     modalOpen = true;
     nav.scope = 'diag';
+    if (window.Tomato) {
+      $('relayInput').value = window.Tomato.relayBase() || '';
+    }
     runDiagnostic();
   }
 
@@ -911,13 +937,17 @@
     $('modal').classList.add('hidden');
     modalOpen = false;
     window.Tomato.streamUrl(episode.id).then(function (stream) {
-      play({
-        id: 'ep-' + episode.id,
-        title: episode.title,
-        video: stream.proxied || stream.direct,
-        direct: stream.direct,
-        episodeId: episode.id
-      }, 0);
+      return window.Tomato.prepare(stream.direct).then(function (prepared) {
+        play({
+          id: 'ep-' + episode.id,
+          title: episode.title,
+          video: prepared.playlist,
+          direct: stream.direct,
+          transport: prepared.mode,
+          warning: prepared.warning,
+          episodeId: episode.id
+        }, 0);
+      });
     }).catch(function (error) {
       $('modalTitle').textContent = 'Não deu para tocar';
       $('modalDesc').textContent = error.message || 'Stream indisponível.';

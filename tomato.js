@@ -13,11 +13,24 @@
     return 'https://' + (CONFIG.apiHost || 'prod-api.tomatoanimes.com');
   }
 
+  function relayBase() {
+    var saved = '';
+    try { saved = localStorage.getItem('extrato.relay') || ''; } catch (e) { }
+    return (saved || CONFIG.relayUrl || '').replace(/\/$/, '');
+  }
+
+  function setRelayBase(value) {
+    try {
+      if (value) { localStorage.setItem('extrato.relay', value.replace(/\/$/, '')); }
+      else { localStorage.removeItem('extrato.relay'); }
+    } catch (e) { }
+  }
+
   function relay(url) {
-    if (!url) { return url; }
-    if (!CONFIG.relayUrl) { return url; }
-    if (url.indexOf(CONFIG.relayUrl) === 0) { return url; }
-    return CONFIG.relayUrl.replace(/\/$/, '') + '/?u=' + encodeURIComponent(url);
+    var base = relayBase();
+    if (!url || !base) { return url; }
+    if (url.indexOf(base) === 0) { return url; }
+    return base + '/?u=' + encodeURIComponent(url);
   }
 
   function token() {
@@ -334,6 +347,8 @@
     return Promise.resolve()
       .then(function () {
         add('Token salvo no navegador', !!token(), token() ? 'presente' : 'nenhum — clique em Entrar');
+        add('Relay configurado', !!relayBase(),
+          relayBase() || 'não — o CDN não manda CORS, então o play vai bloquear');
         if (!token()) { return; }
         return api('/v2/anime/home').then(function (result) {
           var keys = result.data && typeof result.data === 'object'
@@ -375,6 +390,58 @@
       .then(function () { return steps; });
   }
 
+
+  // ---------------------------------------------------------------- improviso sem relay
+  /* O CDN não manda CORS. Sem um relay próprio, o jeito é: baixar o texto da
+     playlist por um proxy público que libere CORS, reescrever cada segmento
+     para passar pelo mesmo proxy e entregar ao player uma playlist em blob.
+     Funciona, mas depende de proxy de terceiros — o relay próprio é melhor. */
+  var PUBLIC_PROXY = 'https://api.allorigins.win/raw?url=';
+
+  function viaProxy(url) {
+    return PUBLIC_PROXY + encodeURIComponent(url);
+  }
+
+  function prepare(directUrl) {
+    var base = relayBase();
+    if (base) {
+      return Promise.resolve({
+        mode: 'relay',
+        playlist: base + '/?u=' + encodeURIComponent(directUrl)
+      });
+    }
+
+    if (!/\.m3u8(\?|$)/i.test(directUrl)) {
+      return Promise.resolve({ mode: 'proxy', playlist: viaProxy(directUrl) });
+    }
+
+    return fetch(viaProxy(directUrl), { mode: 'cors' })
+      .then(function (response) {
+        if (!response.ok) { throw new Error('proxy respondeu ' + response.status); }
+        return response.text();
+      })
+      .then(function (text) {
+        if (text.indexOf('#EXTM3U') < 0) {
+          throw new Error('proxy não devolveu playlist');
+        }
+        var base = directUrl;
+        var out = text.split(/\r?\n/).map(function (line) {
+          var trimmed = line.trim();
+          if (!trimmed || trimmed.charAt(0) === '#') { return line; }
+          var absolute = new URL(trimmed, base).toString();
+          if (/\.m3u8(\?|$)/i.test(absolute)) {
+            return absolute; // master playlist: prepare() de novo quando o player pedir
+          }
+          return viaProxy(absolute);
+        }).join('\n');
+        var blob = new Blob([out], { type: 'application/vnd.apple.mpegurl' });
+        return { mode: 'proxy', playlist: URL.createObjectURL(blob) };
+      })
+      .catch(function (error) {
+        return { mode: 'direct', playlist: directUrl, warning: 'CORS sem relay: ' + error.message };
+      });
+  }
+
   global.Tomato = {
     token: token,
     saveToken: saveToken,
@@ -384,8 +451,11 @@
     loadSeries: loadSeries,
     streamUrl: streamUrl,
     relay: relay,
+    relayBase: relayBase,
+    setRelayBase: setRelayBase,
     api: api,
     loadCaptcha: loadCaptcha,
-    diagnose: diagnose
+    diagnose: diagnose,
+    prepare: prepare
   };
 })(window);
