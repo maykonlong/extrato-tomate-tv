@@ -75,10 +75,12 @@
     art.loading = 'lazy';
     card.appendChild(art);
 
-    var label = document.createElement('div');
-    label.className = 'label';
-    label.textContent = item.title || 'Sem título';
-    card.appendChild(label);
+    if (item.title) {
+      var label = document.createElement('div');
+      label.className = 'label';
+      label.textContent = item.title;
+      card.appendChild(label);
+    }
 
     var entry = progressFor(item.id);
     if (entry && entry.d > 0) {
@@ -97,7 +99,9 @@
     }
 
     card.addEventListener('click', function () {
-      if (window.EXTRATO_CONFIG && window.EXTRATO_CONFIG.mode !== 'local' && loggedIn() && item.raw) {
+      if (item.episode) {
+        playEpisode({ id: item.episodeId, title: item.title });
+      } else if (item.animeId && window.Tomato && loggedIn()) {
         openSeries(item);
       } else {
         openDetail(item);
@@ -154,12 +158,22 @@
     var bg = $('heroBg');
     bg.style.backgroundImage = 'url("' + artFor(item) + '")';
     $('heroPlay').onclick = function () {
-      if (window.EXTRATO_CONFIG && window.EXTRATO_CONFIG.mode !== 'local' && loggedIn() && item.raw) {
+      if (item.episode) {
+        playEpisode({ id: item.episodeId, title: item.title });
+      } else if (item.animeId && window.Tomato && loggedIn()) {
         openSeries(item);
       } else {
         play(item, 0);
       }
     };
+    if (item.animeId && !item.title && window.Tomato && loggedIn()) {
+      window.Tomato.loadSeries(item.id).then(function (data) {
+        if (!data.item || !data.item.title) { return; }
+        $('heroTitle').textContent = data.item.title;
+        if (data.item.desc) { $('heroDesc').textContent = data.item.desc; }
+        if (data.item.banner) { $('heroBg').style.backgroundImage = 'url("' + data.item.banner + '")'; }
+      }).catch(function () { });
+    }
     $('heroInfo').onclick = function () { openDetail(item); };
   }
 
@@ -939,6 +953,13 @@
       box.className = 'empty';
       box.textContent = 'Não consegui carregar o catálogo: ' + (error.message || '');
       host.appendChild(box);
+      var again = document.createElement('button');
+      again.className = 'btn primary focusable';
+      again.tabIndex = 0;
+      again.textContent = 'Tentar de novo';
+      again.onclick = reloadFromServer;
+      host.appendChild(again);
+
       var help = document.createElement('button');
       help.className = 'btn focusable';
       help.tabIndex = 0;
@@ -958,8 +979,10 @@
     nav.scope = 'modal';
     setFocus($('modalPlay'));
     window.Tomato.loadSeries(item.id).then(function (data) {
-      if (data.item && data.item.desc) { $('modalDesc').textContent = data.item.desc; }
-      else { $('modalDesc').textContent = 'Escolha um episódio.'; }
+      if (data.item && data.item.title) { $('modalTitle').textContent = data.item.title; }
+      $('modalDesc').textContent = data.item && data.item.desc
+        ? data.item.desc
+        : 'Escolha um episódio.';
       var list = $('episodeList');
       if (!list) {
         list = document.createElement('div');
@@ -993,7 +1016,7 @@
       return window.Tomato.prepare(stream.direct).then(function (prepared) {
         play({
           id: 'ep-' + episode.id,
-          title: episode.title,
+          title: episode.title || 'Episódio',
           video: prepared.playlist,
           direct: stream.direct,
           transport: prepared.mode,

@@ -26,6 +26,20 @@
     } catch (e) { }
   }
 
+
+  /* O CDN devolve access-control-allow-origin: * nos links assinados, então o
+     navegador toca direto. O relay fica como opção para CDN antigo sem CORS. */
+  function prepare(directUrl) {
+    var base = relayBase();
+    if (base) {
+      return Promise.resolve({
+        mode: 'relay',
+        playlist: base + '/?u=' + encodeURIComponent(directUrl)
+      });
+    }
+    return Promise.resolve({ mode: 'direct', playlist: directUrl });
+  }
+
   function relay(url) {
     var base = relayBase();
     if (!url || !base) { return url; }
@@ -216,116 +230,153 @@
     });
   }
 
-  // ---------------------------------------------------------------- catálogo
-  var HOME_PATHS = ['/v2/anime/home', '/v2/anime/recent', '/v2/anime/genres'];
+  // ---------------------------------------------------------------- catálogo (API real)
+  /* /v2/animes/feed devolve blocos: tipo 3 = destaque, 5 = fileira de animes,
+     7 = episódios recentes, 1 = aviso, 8 = histórico. */
+
+  function blockItems(block) {
+    if (!block || !Array.isArray(block.data)) { return []; }
+    return block.data.filter(function (entry) {
+      return entry && (entry.anime_id || entry.ep_anime_id);
+    });
+  }
+
+  function toCard(entry) {
+    if (entry.ep_id) {
+      return {
+        id: 'ep-' + entry.ep_id,
+        episodeId: String(entry.ep_id),
+        animeId: String(entry.ep_anime_id),
+        title: (entry.anime_name || '') + (entry.ep_name ? ' — ' + entry.ep_name : ''),
+        poster: entry.thumbnail || '',
+        episode: true
+      };
+    }
+    return {
+      id: String(entry.anime_id),
+      animeId: String(entry.anime_id),
+      title: '',                 // o feed só traz a capa; o nome vem ao abrir
+      poster: entry.thumbnail || '',
+      episode: false
+    };
+  }
+
+
+  function describeStatus(status, what) {
+    if (status === 500 || status === 502 || status === 503 || status === 504) {
+      return 'o servidor recusou o ' + what + ' (HTTP ' + status + '). Acontece por IP: ' +
+        'se estiver no Wi-Fi, tente o 5G ou espere alguns minutos.';
+    }
+    if (status === 403) {
+      return 'sessão recusada (HTTP 403) — clique em ☺ e entre de novo.';
+    }
+    if (status === 429) {
+      return 'muitos pedidos seguidos (HTTP 429) — espere um pouco.';
+    }
+    return what + ': HTTP ' + status;
+  }
 
   function loadCatalog() {
-    var index = 0;
-
-    function next() {
-      if (index >= HOME_PATHS.length) {
-        throw new Error('Nenhum endpoint de catálogo respondeu.');
+    return api('/v2/animes/feed?page=1').then(function (result) {
+      if (!result.ok) {
+        throw new Error(describeStatus(result.status, 'catálogo'));
       }
-      var path = HOME_PATHS[index++];
-      return api(path).then(function (result) {
-        if (!result.ok) { return next(); }
-        var raw = harvest(result.data, [], 0);
-        var items = dedupe(raw.map(normalizeItem)).filter(function (item) { return item.title; });
-        if (!items.length) { return next(); }
-        var rowTitle = path.indexOf('recent') >= 0 ? 'Adicionados recentemente'
-          : (path.indexOf('genres') >= 0 ? 'Catálogo' : 'Em alta');
+      var payload = result.data || {};
+      var blocks = Array.isArray(payload.data) ? payload.data : [];
+      if (!blocks.length) {
+        throw new Error('catálogo veio vazio');
+      }
+
+      var hero = null;
+      var rows = [];
+      var warnings = [];
+
+      blocks.forEach(function (block) {
+        var type = Number(block.type);
+        var items = blockItems(block);
+        if (type === 1 && block.text) {
+          warnings.push(String(block.text).split('\n').slice(0, 2).join(' '));
+          return;
+        }
+        if (!items.length) { return; }
+        var cards = items.map(toCard);
+        if (type === 3 && !hero) {
+          hero = cards[0];
+          hero.kicker = block.title || 'Em alta';
+          return;
+        }
+        if (type === 6 && !hero) {
+          hero = cards[0];
+          hero.kicker = block.title || 'Destaque';
+          return;
+        }
+        rows.push({ title: block.title || 'Destaques', items: cards });
+      });
+
+      return { hero: hero, rows: rows, warnings: warnings, raw: payload };
+    });
+  }
+
+  function loadSeries(animeId) {
+    return api('/v2/anime/' + encodeURIComponent(animeId)).then(function (result) {
+      if (!result.ok) {
+        throw new Error(describeStatus(result.status, 'série'));
+      }
+      var payload = result.data || {};
+      var details = payload.anime_details || {};
+      var seasons = Array.isArray(payload.anime_seasons) ? payload.anime_seasons : [];
+      if (!seasons.length) {
+        throw new Error('esta série não tem temporadas');
+      }
+      var season = seasons[0];
+      return api('/season/' + encodeURIComponent(season.season_id) + '/episodes', {
+        method: 'POST',
+        body: { page: 1, order: 1 }
+      }).then(function (episodes) {
+        var list = [];
+        if (episodes.ok && Array.isArray(episodes.data.data)) {
+          list = episodes.data.data.map(function (entry) {
+            return {
+              id: String(entry.ep_id || entry.id),
+              title: entry.ep_name || entry.name || ('Episódio ' + (entry.ep_number || '')),
+              number: entry.ep_number || '',
+              dubbed: entry.dubbed,
+              raw: entry
+            };
+          }).filter(function (entry) { return entry.id && entry.id !== 'undefined'; });
+        }
         return {
-          hero: items[0],
-          rows: [
-            { title: rowTitle, items: items.slice(0, 30) },
-            { title: 'Todos', items: items.slice(30) }
-          ].filter(function (row) { return row.items.length; }),
-          raw: result.data
+          item: {
+            id: String(details.anime_id || animeId),
+            title: details.anime_name || '',
+            desc: details.anime_description || '',
+            poster: details.anime_cover_url || '',
+            banner: details.anime_cape_url || '',
+            episodes: details.anime_episodes || list.length
+          },
+          seasons: list,
+          seasonCount: seasons.length,
+          seasonName: season.season_name || ''
         };
       });
-    }
-
-    return next();
-  }
-
-  function loadSeries(id) {
-    return api('/v2/anime/' + encodeURIComponent(id)).then(function (result) {
-      if (!result.ok) {
-        throw new Error('Série indisponível (' + result.status + ').');
-      }
-      var episodes = harvestEpisodes(result.data);
-      return {
-        item: normalizeItem(result.data.anime || result.data.data || result.data),
-        seasons: episodes
-      };
     });
   }
 
-  function harvestEpisodes(node, depth, out) {
-    depth = depth || 0;
-    out = out || [];
-    if (!node || depth > 7 || out.length > 500) { return out; }
-    if (Array.isArray(node)) {
-      for (var i = 0; i < node.length; i++) { harvestEpisodes(node[i], depth + 1, out); }
-      return out;
-    }
-    if (typeof node === 'object') {
-      var id = pick(node, ['episode_id', 'id']);
-      var title = pick(node, ['episode_title', 'title', 'name']);
-      if (id !== undefined && title !== undefined && typeof title === 'string'
-          && (node.episode_number !== undefined || node.episode_id !== undefined
-              || node.anime_id !== undefined)) {
-        out.push({
-          id: String(id),
-          title: String(title),
-          number: pick(node, ['episode_number', 'number', 'episode']) || '',
-          raw: node
-        });
-        return out;
-      }
-      var keys = Object.keys(node);
-      for (var k = 0; k < keys.length; k++) { harvestEpisodes(node[keys[k]], depth + 1, out); }
-    }
-    return out;
-  }
-
-  // ---------------------------------------------------------------- stream
-  function streamUrl(episodeId) {
+  function streamUrl(episodeId, quality) {
     return api('/v2/anime/episode/' + encodeURIComponent(episodeId) + '/stream').then(function (result) {
-      var url = findUrl(result.data);
-      if (!url) {
-        throw new Error(result.ok ? 'O servidor não devolveu URL de vídeo.' : 'Stream negado (' + result.status + ').');
+      if (!result.ok) {
+        throw new Error(describeStatus(result.status, 'vídeo'));
       }
-      return { direct: url, proxied: relay(url) };
+      var streams = (result.data && result.data.streams) || {};
+      var order = quality === 'fhd' ? ['fhd', 'mhd', 'shd']
+        : (quality === 'shd' ? ['shd', 'mhd', 'fhd'] : ['mhd', 'fhd', 'shd']);
+      var url = '';
+      for (var i = 0; i < order.length; i++) {
+        if (streams[order[i]]) { url = streams[order[i]]; break; }
+      }
+      if (!url) { throw new Error('o servidor não devolveu vídeo para este episódio'); }
+      return { direct: url, quality: order[i - 1] || 'mhd' };
     });
-  }
-
-  function findUrl(node, depth) {
-    depth = depth || 0;
-    if (!node || depth > 6) { return ''; }
-    if (typeof node === 'string') {
-      return /^https?:\/\/.+\.(m3u8|mp4)(\?|$)/.test(node) ? node : '';
-    }
-    if (Array.isArray(node)) {
-      for (var i = 0; i < node.length; i++) {
-        var inArray = findUrl(node[i], depth + 1);
-        if (inArray) { return inArray; }
-      }
-      return '';
-    }
-    if (typeof node === 'object') {
-      var preferred = ['stream_url', 'url', 'hls', 'link', 'file', 'source', 'video'];
-      for (var p = 0; p < preferred.length; p++) {
-        var direct = node[preferred[p]];
-        if (typeof direct === 'string' && /^https?:\/\//.test(direct)) { return direct; }
-      }
-      var keys = Object.keys(node);
-      for (var k = 0; k < keys.length; k++) {
-        var deep = findUrl(node[keys[k]], depth + 1);
-        if (deep) { return deep; }
-      }
-    }
-    return '';
   }
 
   // ---------------------------------------------------------------- captcha
@@ -409,8 +460,7 @@
   // ---------------------------------------------------------------- diagnóstico
   function diagnose() {
     var steps = [];
-    var firstId = '';
-    var firstEpisodeId = '';
+    var shapes = {};
 
     function add(name, ok, detail) {
       steps.push({ name: name, ok: ok, detail: detail || '' });
@@ -419,99 +469,47 @@
     return Promise.resolve()
       .then(function () {
         add('Token salvo no navegador', !!token(), token() ? 'presente' : 'nenhum — clique em Entrar');
-        add('Relay configurado', !!relayBase(),
-          relayBase() || 'não — o CDN não manda CORS, então o play vai bloquear');
         if (!token()) { return; }
-        return api('/v2/anime/home').then(function (result) {
-          var keys = result.data && typeof result.data === 'object'
-            ? Object.keys(result.data).slice(0, 8).join(', ') : 'sem JSON';
-          add('Catálogo (/v2/anime/home)', result.ok, 'HTTP ' + result.status + ' · ' + keys);
-          if (!result.ok) { return; }
-          var items = dedupe(harvest(result.data, [], 0)).map(normalizeItem);
-          add('Séries encontradas no catálogo', items.length > 0, items.length + ' itens');
-          if (!items.length) { return; }
-          firstId = items[0].id;
-          add('Primeira série', true, items[0].title + ' (id ' + firstId + ')');
-          return api('/v2/anime/' + encodeURIComponent(firstId)).then(function (series) {
-            var episodes = harvestEpisodes(series.data);
-            add('Episódios da série', episodes.length > 0,
-              series.ok ? episodes.length + ' episódios' : 'HTTP ' + series.status);
-            if (!episodes.length) { return; }
-            firstEpisodeId = episodes[0].id;
-            add('Primeiro episódio', true, episodes[0].title + ' (id ' + firstEpisodeId + ')');
-            return api('/v2/anime/episode/' + encodeURIComponent(firstEpisodeId) + '/stream').then(function (stream) {
-              var url = findUrl(stream.data);
-              add('URL de stream', !!url, url ? 'recebida (' + url.split('/')[2] + ')' : 'HTTP ' + stream.status);
-              if (!url) { return; }
-              return fetch(url, { method: 'GET', mode: 'cors' }).then(function (response) {
-                add('CDN libera o navegador (CORS)', response.ok,
-                  'HTTP ' + response.status + ' — ' +
-                  (response.ok ? 'dá para tocar direto, sem relay'
-                    : 'bloqueado; use o relay (relay/worker.js)'));
-              }).catch(function (error) {
-                add('CDN libera o navegador (CORS)', false,
-                  'bloqueado pelo navegador (CORS) — use o relay (relay/worker.js)');
+        return api('/v2/animes/feed?page=1').then(function (feed) {
+          add('Catálogo (/v2/animes/feed)', feed.ok,
+            'HTTP ' + feed.status + ' · ' + ((feed.data && feed.data.data) ? feed.data.data.length : 0) + ' blocos');
+          if (!feed.ok) { return; }
+          var blocks = feed.data.data || [];
+          var withItems = blocks.filter(function (b) { return b.data && b.data.length; });
+          add('Fileiras com conteúdo', withItems.length > 0, withItems.length + ' de ' + blocks.length);
+          var animeBlock = blocks.filter(function (b) { return Number(b.type) === 5 || Number(b.type) === 3; })[0];
+          if (!animeBlock) { return; }
+          var animeId = animeBlock.data[0].anime_id;
+          return api('/v2/anime/' + animeId).then(function (detail) {
+            var payload = detail.data || {};
+            var info = payload.anime_details || {};
+            var season = (payload.anime_seasons || [])[0] || {};
+            add('Série (' + animeId + ')', detail.ok, detail.ok ? (info.anime_name || '?') : ('HTTP ' + detail.status));
+            if (!detail.ok || !season.season_id) { return; }
+            return api('/season/' + season.season_id + '/episodes', {
+              method: 'POST', body: { page: 1, order: 1 }
+            }).then(function (episodes) {
+              var list = (episodes.data && episodes.data.data) || [];
+              add('Episódios', episodes.ok, episodes.ok ? list.length + ' episódios' : ('HTTP ' + episodes.status));
+              if (!list.length) { return; }
+              var epId = list[0].ep_id || list[0].id;
+              return streamUrl(epId).then(function (stream) {
+                add('URL de stream', !!stream.direct, stream.direct.split('/')[2]);
+                return fetch(stream.direct, { method: 'GET', mode: 'cors' }).then(function (response) {
+                  add('CDN libera o navegador (CORS)', response.ok,
+                    'HTTP ' + response.status + (response.ok ? ' — toca direto, sem relay' : ' — use o relay'));
+                }).catch(function () {
+                  add('CDN libera o navegador (CORS)', false, 'bloqueado — configure o relay');
+                });
               });
             });
           });
         });
       })
       .catch(function (error) {
-        add('Falha inesperada', false, String(error && error.message));
+        add('Falha', false, String(error && error.message));
       })
       .then(function () { return steps; });
-  }
-
-
-  // ---------------------------------------------------------------- improviso sem relay
-  /* O CDN não manda CORS. Sem um relay próprio, o jeito é: baixar o texto da
-     playlist por um proxy público que libere CORS, reescrever cada segmento
-     para passar pelo mesmo proxy e entregar ao player uma playlist em blob.
-     Funciona, mas depende de proxy de terceiros — o relay próprio é melhor. */
-  var PUBLIC_PROXY = 'https://api.allorigins.win/raw?url=';
-
-  function viaProxy(url) {
-    return PUBLIC_PROXY + encodeURIComponent(url);
-  }
-
-  function prepare(directUrl) {
-    var base = relayBase();
-    if (base) {
-      return Promise.resolve({
-        mode: 'relay',
-        playlist: base + '/?u=' + encodeURIComponent(directUrl)
-      });
-    }
-
-    if (!/\.m3u8(\?|$)/i.test(directUrl)) {
-      return Promise.resolve({ mode: 'proxy', playlist: viaProxy(directUrl) });
-    }
-
-    return fetch(viaProxy(directUrl), { mode: 'cors' })
-      .then(function (response) {
-        if (!response.ok) { throw new Error('proxy respondeu ' + response.status); }
-        return response.text();
-      })
-      .then(function (text) {
-        if (text.indexOf('#EXTM3U') < 0) {
-          throw new Error('proxy não devolveu playlist');
-        }
-        var base = directUrl;
-        var out = text.split(/\r?\n/).map(function (line) {
-          var trimmed = line.trim();
-          if (!trimmed || trimmed.charAt(0) === '#') { return line; }
-          var absolute = new URL(trimmed, base).toString();
-          if (/\.m3u8(\?|$)/i.test(absolute)) {
-            return absolute; // master playlist: prepare() de novo quando o player pedir
-          }
-          return viaProxy(absolute);
-        }).join('\n');
-        var blob = new Blob([out], { type: 'application/vnd.apple.mpegurl' });
-        return { mode: 'proxy', playlist: URL.createObjectURL(blob) };
-      })
-      .catch(function (error) {
-        return { mode: 'direct', playlist: directUrl, warning: 'CORS sem relay: ' + error.message };
-      });
   }
 
   global.Tomato = {
