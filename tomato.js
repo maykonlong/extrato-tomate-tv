@@ -296,44 +296,82 @@
     return what + ': HTTP ' + status;
   }
 
-  function loadCatalog() {
+  var CACHE_KEY = 'extrato.catalog';
+
+  function readCache() {
+    try {
+      var raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) { return null; }
+      var parsed = JSON.parse(raw);
+      if (!parsed || !parsed.payload) { return null; }
+      return parsed;
+    } catch (e) { return null; }
+  }
+
+  function writeCache(payload) {
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), payload: payload }));
+    } catch (e) { }
+  }
+
+  function delay(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  function buildCatalog(payload) {
+    var blocks = Array.isArray(payload.data) ? payload.data : [];
+    if (!blocks.length) {
+      throw new Error('catálogo veio vazio');
+    }
+    var hero = null;
+    var rows = [];
+    var warnings = [];
+
+    blocks.forEach(function (block) {
+      var type = Number(block.type);
+      var items = blockItems(block);
+      if (type === 1 && block.text) {
+        warnings.push(String(block.text).split('\n').slice(0, 2).join(' '));
+        return;
+      }
+      if (!items.length) { return; }
+      var cards = items.map(toCard);
+      if ((type === 3 || type === 6) && !hero) {
+        hero = cards[0];
+        hero.kicker = block.title || 'Em alta';
+        return;
+      }
+      rows.push({ title: block.title || 'Destaques', items: cards });
+    });
+
+    return { hero: hero, rows: rows, warnings: warnings, raw: payload };
+  }
+
+  /* O feed às vezes devolve 500 sozinho; tenta mais duas vezes e, se não der,
+     entrega o último catálogo bom em vez de tela vazia. */
+  function loadCatalog(attempt) {
+    attempt = attempt || 0;
     return api('/v2/animes/feed?page=1').then(function (result) {
       if (!result.ok) {
         throw new Error(describeStatus(result.status, 'catálogo'));
       }
-      var payload = result.data || {};
-      var blocks = Array.isArray(payload.data) ? payload.data : [];
-      if (!blocks.length) {
-        throw new Error('catálogo veio vazio');
+      var catalog = buildCatalog(result.data || {});
+      writeCache(result.data);
+      return catalog;
+    }).catch(function (error) {
+      if (attempt < 2) {
+        return delay(1500 + attempt * 2500).then(function () { return loadCatalog(attempt + 1); });
       }
-
-      var hero = null;
-      var rows = [];
-      var warnings = [];
-
-      blocks.forEach(function (block) {
-        var type = Number(block.type);
-        var items = blockItems(block);
-        if (type === 1 && block.text) {
-          warnings.push(String(block.text).split('\n').slice(0, 2).join(' '));
-          return;
-        }
-        if (!items.length) { return; }
-        var cards = items.map(toCard);
-        if (type === 3 && !hero) {
-          hero = cards[0];
-          hero.kicker = block.title || 'Em alta';
-          return;
-        }
-        if (type === 6 && !hero) {
-          hero = cards[0];
-          hero.kicker = block.title || 'Destaque';
-          return;
-        }
-        rows.push({ title: block.title || 'Destaques', items: cards });
-      });
-
-      return { hero: hero, rows: rows, warnings: warnings, raw: payload };
+      var cached = readCache();
+      if (cached) {
+        try {
+          var fallback = buildCatalog(cached.payload);
+          fallback.fromCache = new Date(cached.at).toLocaleString('pt-BR');
+          fallback.warnings = (fallback.warnings || []).concat([error.message]);
+          return fallback;
+        } catch (e) { }
+      }
+      throw error;
     });
   }
 

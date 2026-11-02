@@ -945,13 +945,19 @@
       setHero(data.hero);
       buildContinueRow();
       renderRows();
+      if (data.fromCache) {
+        var badge = document.createElement('p');
+        badge.className = 'empty';
+        badge.textContent = 'Servidor instável: mostrando o catálogo salvo em ' + data.fromCache + '.';
+        $('rows').insertBefore(badge, $('rows').firstChild);
+      }
       var list = focusables();
       if (list.length) { setFocus(list[0]); }
     }).catch(function (error) {
       host.innerHTML = '';
       var box = document.createElement('p');
       box.className = 'empty';
-      box.textContent = 'Não consegui carregar o catálogo: ' + (error.message || '');
+      box.textContent = error.message || 'Não consegui carregar o catálogo.';
       host.appendChild(box);
       var again = document.createElement('button');
       again.className = 'btn primary focusable';
