@@ -121,26 +121,40 @@
       }
     }).then(function (result) {
       var data = result.data || {};
-      var statusCode = data.status_code;
-      var ok = (statusCode === 0 || statusCode === '0' || statusCode === 3 || statusCode === '3')
-        && findToken(data);
-      if (!ok) {
-        var code = String(statusCode);
-        var message = data.message || 'Login recusado pelo servidor.';
-        if (code === '1') { message = 'E-mail ou senha inválidos.'; }
-        else if (code === '2') { message = 'Captcha inválido ou expirado — resolva de novo.'; }
-        else if (code === '4') { message = 'Conta bloqueada: ' + (data.user_ban_reason_text || 'sem motivo informado'); }
-        else { message = message + ' (código ' + code + ')'; }
-        var keys = data && typeof data === 'object' ? Object.keys(data).slice(0, 6).join(', ') : '';
-        var error = new Error(message + (keys ? ' · resposta: ' + keys : ''));
-        error.payload = data;
-        try { window.__lastLogin = { code: code, keys: keys }; } catch (e) { }
-        throw error;
+      var code = String(data.status_code);
+
+      /* Contrato do app: 4 = sucesso (o token vem em data.token),
+         1 = dados inválidos, 30 = captcha inválido, 4 + user_isbanned = bloqueado. */
+      if (code === '4' && String(data.user_isbanned || 0) === '1') {
+        throw new Error('Conta bloqueada: ' + (data.user_ban_reason_text || 'sem motivo informado'));
       }
-      var found = findToken(data);
-      saveToken(found);
-      try { localStorage.setItem(USER_KEY, JSON.stringify({ email: email })); } catch (e) { }
-      return { token: found, data: data };
+      if (code === '4') {
+        var found = data.token || findToken(data);
+        if (!found) {
+          throw new Error('o servidor aceitou o login mas não devolveu token (chaves: ' +
+            Object.keys(data).join(', ') + ')');
+        }
+        saveToken(String(found).replace(/"/g, ''));
+        try {
+          localStorage.setItem(USER_KEY, JSON.stringify({
+            email: email,
+            name: data.user_name || '',
+            bio: data.bio || '',
+            uuid: data.uuid || ''
+          }));
+        } catch (e) { }
+        return { token: String(found).replace(/"/g, ''), data: data };
+      }
+
+      if (code === '30') {
+        throw new Error('Captcha inválido ou expirado — resolva de novo.');
+      }
+      if (code === '1') {
+        throw new Error('E-mail ou senha inválidos.');
+      }
+      var keys = Object.keys(data).slice(0, 8).join(', ');
+      throw new Error((data.message || 'Login recusado') + ' (código ' + code + ')' +
+        (keys ? ' · resposta: ' + keys : ''));
     });
   }
 
